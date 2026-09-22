@@ -244,6 +244,7 @@ export function projectOrtho(mesh, L, W, H, include, exclude, out) {
  */
 export function rasterize(st, x0, y0, x1, y1, depth, ids) {
   const stride = x1 - x0;
+  const withIds = ids !== null; // a shadow map only needs depth
   const V = st.v;
   const BB = st.bb;
   const ID = st.id;
@@ -327,7 +328,7 @@ export function rasterize(st, x0, y0, x1, y1, depth, ids) {
       for (let x = xs; x < xe; x++, i++) {
         if (eab >= 0 && ebc >= 0 && eca >= 0 && d > depth[i]) {
           depth[i] = d;
-          ids[i] = id;
+          if (withIds) ids[i] = id;
         }
         eab += sab;
         ebc += sbc;

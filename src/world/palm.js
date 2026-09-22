@@ -44,7 +44,7 @@ export function addPalm(b, rng, M, x, z, opts = {}) {
     b.sphere(0.12, 6, 4);
     b.pop();
   }
-  const n = opts.fronds ?? rng.int(13, 17);
+  const n = opts.fronds ?? rng.int(16, 21);
   const az0 = rng.range(0, Math.PI * 2);
   for (let i = 0; i < n; i++) {
     const tier = i % 3;
@@ -64,8 +64,8 @@ function addFrond(b, rng, o, az, el, len, droop, mat) {
   const dz = ce * Math.sin(az);
   const at = (s) => [o[0] + dx * len * s, o[1] + dy * len * s - droop * s * s, o[2] + dz * len * s];
   const tan = (s) => normalize([dx * len, dy * len - 2 * droop * s, dz * len]);
-  const N = 15;
-  const maxLeaf = len * rng.range(0.25, 0.31);
+  const N = 21;
+  const maxLeaf = len * rng.range(0.27, 0.33);
   b.object();
   b.use(mat, CAST | DOUBLE);
   let prev = o;
@@ -78,7 +78,8 @@ function addFrond(b, rng, o, az, el, len, droop, mat) {
     side = sl < 1e-6 ? [1, 0, 0] : [side[0] / sl, side[1] / sl, side[2] / sl];
     const up = cross(side, t);
     // The rib: a thin ribbon.
-    b.quad(prev, p, madd(p, up, 0.04), madd(prev, up, 0.04));
+    const s0 = (j - 1) / N;
+    b.quad(prev, p, madd(p, up, 0.04), madd(prev, up, 0.04), [s0, 0, s, 0, s, 0, s0, 0]);
     prev = p;
     if (s < 0.08) continue;
     const env = Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + s)), 0.7);
@@ -86,15 +87,15 @@ function addFrond(b, rng, o, az, el, len, droop, mat) {
     if (ll < 0.05) continue;
     const sweep = 0.55;
     const fold = 0.5 + 0.35 * s;
-    const w = 0.05 + 0.06 * env;
+    const w = 0.045 + 0.05 * env;
     for (const sign of [-1, 1]) {
       const d = normalize([
         side[0] * sign * Math.cos(sweep) + t[0] * Math.sin(sweep) - up[0] * fold,
         side[1] * sign * Math.cos(sweep) + t[1] * Math.sin(sweep) - up[1] * fold,
         side[2] * sign * Math.cos(sweep) + t[2] * Math.sin(sweep) - up[2] * fold,
       ]);
-      const tip = [p[0] + d[0] * ll, p[1] + d[1] * ll - ll * 0.16, p[2] + d[2] * ll];
-      b.tri(madd(p, t, -w), madd(p, t, w), tip);
+      const tip = [p[0] + d[0] * ll, p[1] + d[1] * ll - ll * 0.2, p[2] + d[2] * ll];
+      b.tri(madd(p, t, -w), madd(p, t, w), tip, [s, 0, s, 0, s, 1]);
     }
   }
 }

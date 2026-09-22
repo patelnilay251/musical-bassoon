@@ -4,13 +4,15 @@
 //
 // Axes: +x east, +y up, +z south. The sea lies to the west, past the parapet.
 
-import { MeshBuilder, finalizeMesh, CAST, DOUBLE, UNDERWATER, NOREFLECT, DISTANT } from '../mesh.js';
+import { MeshBuilder, finalizeMesh, CAST, UNDERWATER, NOREFLECT, DISTANT } from '../mesh.js';
 import { Rng, hashInts, hex, clamp, lerp } from '../math.js';
-import { makeClouds, SEA_LEVEL } from '../sky.js';
+import { makeSky, SEA_LEVEL } from '../sky.js';
 import { makeMaterials } from './materials.js';
 import { addVilla } from './villa.js';
 import { addPalm } from './palm.js';
-import { addLounger, addSideTable, addUmbrella, addFloat, addLadder, addDivingBoard, addLamp, addCar } from './props.js';
+import { addLounger, addSideTable, addUmbrella, addFloat, addLadder, addDivingBoard, addLamp } from './props.js';
+import { addCar } from './cars.js';
+import { ridge } from './common.js';
 
 export const DEFAULT_SEED = 1981;
 export const DECK = 0.15;
@@ -155,7 +157,7 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
     b.push();
     b.translate(car.x, 0.04, car.z);
     b.rotateY(Math.PI + 0.06);
-    addCar(b, M);
+    addCar(b, M, { paint: M.visitor });
     b.pop();
   }
   lights.push(addLamp(b, M, dx0 + 0.8, dz0 + 0.8, DECK));
@@ -261,7 +263,7 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
     props: P,
     mesh,
     materials,
-    clouds: makeClouds(sub(6)),
+    sky: makeSky(sub(6)),
     pool,
     lights,
     shadowBox: { min: [PX0 - 1, -2, PZ0 - 1], max: [PX1 + 1, 16, PZ1 + 1] },
@@ -279,40 +281,4 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
       palms,
     },
   };
-}
-
-// A faceted ridge: a row of peaks between two ground lines, flat shaded so
-// each slope reads as one tone. `alongX` turns it to run east-west.
-function ridge(b, rng, x, z, width, depth, height, base, alongX = false) {
-  const n = rng.int(3, 5);
-  const peaks = [];
-  for (let k = 0; k <= n; k++) {
-    const t = k / n;
-    const env = Math.sin(Math.PI * (0.08 + 0.84 * t));
-    peaks.push(base + height * env * rng.range(0.6, 1.0));
-  }
-  const pt = (along, across, y) => (alongX ? [x + along, y, z + across] : [x + across, y, z + along]);
-  for (let k = 0; k < n; k++) {
-    const a0 = -width / 2 + (width * k) / n;
-    const a1 = -width / 2 + (width * (k + 1)) / n;
-    const off = rng.range(-0.15, 0.15) * depth;
-    const P0 = pt(a0, off, peaks[k]);
-    const P1 = pt(a1, off, peaks[k + 1]);
-    const F0 = pt(a0, -depth / 2, base);
-    const F1 = pt(a1, -depth / 2, base);
-    const B0 = pt(a0, depth / 2, base);
-    const B1 = pt(a1, depth / 2, base);
-    // Wind both slopes outward whichever way the ridge runs.
-    if (alongX) {
-      b.quad(F0, P0, P1, F1);
-      b.quad(P0, B0, B1, P1);
-    } else {
-      b.quad(F0, F1, P1, P0);
-      b.quad(P0, P1, B1, B0);
-    }
-  }
-  b.use(b.curMat, DISTANT | DOUBLE);
-  b.tri(pt(-width / 2, -depth / 2, base), pt(-width / 2, depth / 2, base), pt(-width / 2, 0, peaks[0]));
-  b.tri(pt(width / 2, -depth / 2, base), pt(width / 2, depth / 2, base), pt(width / 2, 0, peaks[n]));
-  b.use(b.curMat, DISTANT);
 }

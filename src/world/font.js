@@ -1,0 +1,83 @@
+// A small stroke font for signs: block capitals on a 4 x 6 grid, each
+// letter a list of segments. Letters are built either as boxes (painted
+// lettering) or as tubes (neon).
+
+const G = {
+  A: [[0, 0, 1.6, 6], [1.6, 6, 2.4, 6], [2.4, 6, 4, 0], [0.7, 2.3, 3.3, 2.3]],
+  B: [[0, 0, 0, 6], [0, 6, 3, 6], [3, 6, 3.9, 5.1], [3.9, 5.1, 3.9, 3.9], [3.9, 3.9, 3, 3.1], [0, 3.1, 3.2, 3.1], [3.2, 3.1, 4, 2.2], [4, 2.2, 4, 0.9], [4, 0.9, 3.1, 0], [3.1, 0, 0, 0]],
+  C: [[4, 5.3, 3.2, 6], [3.2, 6, 0.8, 6], [0.8, 6, 0, 5.1], [0, 5.1, 0, 0.9], [0, 0.9, 0.8, 0], [0.8, 0, 3.2, 0], [3.2, 0, 4, 0.7]],
+  D: [[0, 0, 0, 6], [0, 6, 2.6, 6], [2.6, 6, 4, 4.6], [4, 4.6, 4, 1.4], [4, 1.4, 2.6, 0], [2.6, 0, 0, 0]],
+  E: [[4, 6, 0, 6], [0, 6, 0, 0], [0, 0, 4, 0], [0, 3.1, 3, 3.1]],
+  F: [[0, 0, 0, 6], [0, 6, 4, 6], [0, 3.2, 3, 3.2]],
+  H: [[0, 0, 0, 6], [4, 0, 4, 6], [0, 3.1, 4, 3.1]],
+  I: [[2, 0, 2, 6], [1, 6, 3, 6], [1, 0, 3, 0]],
+  K: [[0, 0, 0, 6], [4, 6, 0.3, 2.6], [1.3, 3.5, 4, 0]],
+  L: [[0, 6, 0, 0], [0, 0, 4, 0]],
+  M: [[0, 0, 0, 6], [0, 6, 2, 2.8], [2, 2.8, 4, 6], [4, 6, 4, 0]],
+  N: [[0, 0, 0, 6], [0, 6, 4, 0], [4, 0, 4, 6]],
+  O: [[0.8, 0, 3.2, 0], [3.2, 0, 4, 1], [4, 1, 4, 5], [4, 5, 3.2, 6], [3.2, 6, 0.8, 6], [0.8, 6, 0, 5], [0, 5, 0, 1], [0, 1, 0.8, 0]],
+  P: [[0, 0, 0, 6], [0, 6, 3, 6], [3, 6, 4, 5], [4, 5, 4, 4.1], [4, 4.1, 3, 3.1], [3, 3.1, 0, 3.1]],
+  R: [[0, 0, 0, 6], [0, 6, 3, 6], [3, 6, 4, 5], [4, 5, 4, 4.1], [4, 4.1, 3, 3.1], [3, 3.1, 0, 3.1], [1.9, 3.1, 4, 0]],
+  S: [[4, 5.2, 3.2, 6], [3.2, 6, 0.8, 6], [0.8, 6, 0, 5.2], [0, 5.2, 0, 4], [0, 4, 0.8, 3.2], [0.8, 3.2, 3.2, 2.8], [3.2, 2.8, 4, 2], [4, 2, 4, 0.8], [4, 0.8, 3.2, 0], [3.2, 0, 0.8, 0], [0.8, 0, 0, 0.8]],
+  T: [[0, 6, 4, 6], [2, 6, 2, 0]],
+  U: [[0, 6, 0, 1], [0, 1, 0.8, 0], [0.8, 0, 3.2, 0], [3.2, 0, 4, 1], [4, 1, 4, 6]],
+  V: [[0, 6, 2, 0], [2, 0, 4, 6]],
+  Y: [[0, 6, 2, 3], [4, 6, 2, 3], [2, 3, 2, 0]],
+  '*': [[2, 1.2, 2, 4.8], [0.4, 2, 3.6, 4], [0.4, 4, 3.6, 2]],
+};
+
+export const glyphs = Object.keys(G);
+
+// Width of a text run in grid units (letters are 4 wide, 1.6 apart).
+export function textWidth(text) {
+  return text.length * 5.6 - 1.6;
+}
+
+/**
+ * Build `text` in the local xy-plane, starting at x = 0, baseline y = 0,
+ * facing +z. `size` is the cap height in meters. mode 'tube' makes neon.
+ */
+export function addText(b, text, { size = 1, depth = 0.08, stroke = 0.12, mode = 'box', align = 'left' } = {}) {
+  const k = size / 6;
+  const width = textWidth(text) * k;
+  const x0 = align === 'center' ? -width / 2 : align === 'right' ? -width : 0;
+  let cx = x0;
+  for (const ch of text.toUpperCase()) {
+    const segs = G[ch];
+    if (segs) {
+      for (const [ax, ay, bx, by] of segs) {
+        const p = [cx + ax * k, ay * k];
+        const q = [cx + bx * k, by * k];
+        if (mode === 'tube') {
+          b.tube([[p[0], p[1], depth], [q[0], q[1], depth]], [stroke / 2, stroke / 2], 6);
+        } else {
+          stroke2d(b, p, q, stroke, depth);
+        }
+      }
+    }
+    cx += 5.6 * k;
+  }
+  return width;
+}
+
+// One straight stroke as a thin slab from z = 0 to z = depth, with square
+// caps pushed out half a stroke so joints close.
+function stroke2d(b, p, q, w, depth) {
+  let dx = q[0] - p[0];
+  let dy = q[1] - p[1];
+  const l = Math.hypot(dx, dy) || 1;
+  dx /= l;
+  dy /= l;
+  const h = w / 2;
+  const nx = -dy * h;
+  const ny = dx * h;
+  const ex = dx * h;
+  const ey = dy * h;
+  const poly = [
+    [p[0] - ex + nx, p[1] - ey + ny],
+    [p[0] - ex - nx, p[1] - ey - ny],
+    [q[0] + ex - nx, q[1] + ey - ny],
+    [q[0] + ex + nx, q[1] + ey + ny],
+  ];
+  b.profile(poly, 0, depth);
+}

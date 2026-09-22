@@ -35,9 +35,9 @@ export function makeMaterials(rng) {
     M[name] = list.length;
     list.push({ name, ...def });
   };
-  add('deck', { color: '#efe6d3', pattern: 'deck', scale: 1.2 });
+  add('deck', { color: '#f5f0e4', pattern: 'deck', scale: 1.2 });
   add('coping', { color: '#f8f4ea' });
-  add('lawn', { color: '#63aa56', pattern: 'lawn' });
+  add('lawn', { color: '#43a45e' });
   add('field', { color: '#bdb883' });
   add('drive', { color: '#ddd5c6', pattern: 'deck', scale: 3 });
   add('wall', { color: '#f4f0e7', ao: true });
@@ -46,13 +46,14 @@ export function makeMaterials(rng) {
   add('door', { color: accent.door });
   add('frame', { color: '#e8e3d8' });
   add('glass', { kind: 'glass', color: '#34507e', emit: '#ffc36e' });
+  add('carGlass', { kind: 'glass', color: '#34507e' });
   add('boundary', { color: '#f1e9d9', ao: true });
   add('water', { kind: 'water', color: '#1596c4' });
   add('poolTile', { color: '#92dce6', pattern: 'tile' });
   add('trunk', { color: '#b89f82', pattern: 'trunk' });
   add('boot', { color: '#8f7a56' });
-  add('frond', { kind: 'foliage', color: '#3f9c55' });
-  add('frondDark', { kind: 'foliage', color: '#2f8350' });
+  add('frond', { kind: 'foliage', color: '#3a9c52', pattern: 'frond' });
+  add('frondDark', { kind: 'foliage', color: '#2c8a4e', pattern: 'frond' });
   add('nut', { color: '#7a6a33' });
   add('hedge', { color: '#3d8c48' });
   add('loungerFrame', { color: '#f7f6f1' });
@@ -65,7 +66,7 @@ export function makeMaterials(rng) {
   add('paint', { kind: 'paint', color: car });
   add('leather', { color: '#efe2c8' });
   add('tire', { color: '#262628' });
-  add('headlight', { kind: 'lamp', color: '#f3efe2', emit: '#fff3d0' });
+  add('headlight', { kind: 'paint', color: '#f3efe2' }); // parked: never lit
   add('taillight', { color: '#c8262c' });
   add('globe', { kind: 'lamp', color: '#f6f2e8', emit: '#ffe6ad' });
   add('post', { color: '#f0ece3' });
@@ -79,5 +80,78 @@ export function makeMaterials(rng) {
   add('board', { color: '#f7f5ef' });
   add('table', { color: '#f7f6f1' });
   add('glassware', { kind: 'chrome', color: '#e6f0f4' });
+
+  // ---- the rest of Paloma Bay (fixed colors: the town is the same town
+  // whichever house the seed builds)
+  add('visitor', { kind: 'paint', color: '#f2b233' }); // the yellow convertible
+  add('paintRed', { kind: 'paint', color: '#d7302b' });
+  add('paintCream', { kind: 'paint', color: '#f1ece0' });
+  add('paintBlue', { kind: 'paint', color: '#2e6fc0' });
+  add('paintTeal', { kind: 'paint', color: '#1f8a76' });
+  add('paintPink', { kind: 'paint', color: '#ee8f9c' });
+  add('paintWhite', { kind: 'paint', color: '#f6f4ee' });
+  add('asphalt', { color: '#6c7188' });
+  add('lot', { color: '#858aa0' });
+  add('lineWhite', { color: '#f5f2e8' });
+  add('lineYellow', { color: '#f4c04a' });
+  add('curb', { color: '#efe9dd' });
+  add('sidewalk', { color: '#e8e0d2', pattern: 'deck', scale: 1.6 });
+  add('sand', { color: '#f2dcb8' });
+  add('wetSand', { color: '#d9bf98' });
+  add('foam', { color: '#fdfcf8' });
+  add('lace', { color: '#c9f1ee' }); // thinning foam over the shallows
+  add('sea', { kind: 'harbor', color: '#1a5fb0' });
+  add('planks', { color: '#d2bc98', pattern: 'planks' });
+  add('piling', { color: '#8c7a66' });
+  add('rail', { color: '#f7f5ef' });
+  add('fanTrunk', { color: '#a48f7a', pattern: 'trunk', scale: 0.7 });
+  add('skirt', { color: '#b69a68' });
+  add('fanLeaf', { kind: 'foliage', color: '#3f9858', pattern: 'frond' });
+  add('neonPink', { kind: 'neon', color: '#f8c9d8', emit: '#ff5fa8' });
+  add('neonCyan', { kind: 'neon', color: '#cdf1f6', emit: '#54e8ff' });
+  add('neonRed', { kind: 'neon', color: '#f6c6be', emit: '#ff4a3a' });
+  add('neonWhite', { kind: 'neon', color: '#f8f5ee', emit: '#fff1d4' });
+  add('signTeal', { color: '#1d9aa0' });
+  add('signCream', { color: '#fbf5e6' });
+  add('signRed', { color: '#e2473b' });
+  add('signNavy', { color: '#23407e' });
+  add('stucco', { color: '#f6f1e8', ao: true });
+  add('salmon', { color: '#ef8e7f', ao: true });
+  add('mint', { color: '#8fd6c0', ao: true });
+  add('butter', { color: '#f5d77a', ao: true });
+  add('lilac', { color: '#bba6e2', ao: true });
+  add('skyBlue', { color: '#86c6ee', ao: true });
+  add('doorRed', { color: '#e9463f' });
+  add('doorYellow', { color: '#f3b634' });
+  add('doorBlue', { color: '#2f6db5' });
+  add('doorGreen', { color: '#1f8a76' });
+  add('doorPink', { color: '#ef8e9f' });
+  add('awningRed', { color: '#e9463f', color2: '#fbf6ee', pattern: 'stripes', scale: 2 });
+  add('awningBlue', { color: '#2f6db5', color2: '#fbf6ee', pattern: 'stripes', scale: 2 });
+  add('awningGreen', { color: '#1f8a76', color2: '#fbf6ee', pattern: 'stripes', scale: 2 });
+  add('hull', { kind: 'paint', color: '#f8f7f2' });
+  add('hullNavy', { kind: 'paint', color: '#1d3b82' });
+  add('hullRed', { kind: 'paint', color: '#c9352f' });
+  add('bootStripe', { color: '#1d3b82' });
+  add('teak', { color: '#c9a77c' });
+  add('mast', { color: '#eef0f0' });
+  add('sailCover', { color: '#2f6db5' });
+  add('rope', { color: '#474a58' });
+  add('rock', { color: '#b8ab9d' });
+  add('lhRed', { color: '#d63a33' });
+  add('beacon', { kind: 'lamp', color: '#f8f0d8', emit: '#ffe9ad' });
+  add('towerBlue', { color: '#8fd0ea', ao: true });
+  add('number', { color: '#2f6db5' });
+  add('boardRed', { kind: 'paint', color: '#f06a5c' });
+  add('boardYellow', { kind: 'paint', color: '#f5c64f' });
+  add('boardAqua', { kind: 'paint', color: '#5cc6d8' });
+  add('boardWhite', { kind: 'paint', color: '#f8f5ec' });
+  add('lamp', { kind: 'lamp', color: '#f6f2e8', emit: '#ffdca0' });
+  add('signalBody', { color: '#e0b93a' });
+  add('signalRed', { kind: 'lamp', color: '#b3302b', emit: '#ff4a3a' });
+  add('shrub', { kind: 'foliage', color: '#3f8f4c' });
+  add('lawnTown', { color: '#4aa865' });
+  add('scenery', { kind: 'distant', color: '#8f95c4' });
+  add('headland', { kind: 'distant', color: '#8a86b6' });
   return { list, M, accent, car };
 }

@@ -6,7 +6,7 @@ import { ScreenTris, projectPerspective, projectOrtho, rasterize } from './raste
 import { BVH } from './bvh.js';
 import { CAST, DOUBLE, SMOOTH, UNDERWATER, NOREFLECT, DISTANT } from './mesh.js';
 import { skyState, skyColor, seaColor, SEA_LEVEL } from './sky.js';
-import { DEG, clamp, smoothstep, hash2, hex, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul } from './math.js';
+import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul } from './math.js';
 
 export const KIND = {
   diffuse: 0,
@@ -14,9 +14,11 @@ export const KIND = {
   glass: 2,
   chrome: 3,
   paint: 4,
-  water: 5,
+  water: 5, // a pool: refracted basin + mirrored reflection
   lamp: 6,
   distant: 7,
+  harbor: 8, // open water: deep body + mirrored reflection
+  neon: 9, // tubes by day, burning past white by night
 };
 
 export const PATTERN = {
@@ -28,6 +30,8 @@ export const PATTERN = {
   stripes: 5, // fabric stripes, uv u, color2
   road: 6, // speckled asphalt
   segments: 7, // alternating color2 by uv u (umbrella, float)
+  planks: 8, // board seams along world x (docks, piers), color2 unused
+  frond: 9, // palm leaves: darker at the crown, lighter toward the tips
 };
 
 const TILE = 64; // output pixels per tile edge
@@ -36,31 +40,12 @@ const TILE = 64; // output pixels per tile edge
 const C = new Float64Array(3);
 const T = new Float64Array(3);
 
-function worleyEdge(x, y) {
-  const xi = Math.floor(x);
-  const yi = Math.floor(y);
-  let f1 = 9;
-  let f2 = 9;
-  for (let j = -1; j <= 1; j++) {
-    for (let i = -1; i <= 1; i++) {
-      const cx = xi + i;
-      const cy = yi + j;
-      const px = cx + hash2(cx, cy) - x;
-      const py = cy + hash2(cx + 101, cy + 37) - y;
-      const d = px * px + py * py;
-      if (d < f1) {
-        f2 = f1;
-        f1 = d;
-      } else if (d < f2) f2 = d;
-    }
-  }
-  return Math.sqrt(f2) - Math.sqrt(f1);
-}
-
 export class Renderer {
   // shadowRays: trace exact shadows through a BVH instead of the shadow
   // map. Slower, perfectly crisp; meant for print-quality frames.
-  constructor(world, { shadowSize = 4096, shadowRays = false } = {}) {
+  // reflScale: resolution of the mirrored pass relative to the frame
+  // (ripples blur it anyway, so interactive use can go lower).
+  constructor(world, { shadowSize = 4096, shadowRays = false, reflScale = 1 } = {}) {
     this.world = world;
     const mesh = (this.mesh = world.mesh);
     const mats = world.materials;
@@ -101,7 +86,10 @@ export class Renderer {
     this.tileIds = new Int32Array(0);
     this.refl = null;
     this.reflOn = false;
+    this.reflScale = reflScale;
     this.bvh = shadowRays ? new BVH(mesh) : null;
+    this.seaLevel = world.seaLevel ?? SEA_LEVEL;
+    this.mirror = world.mirror || (world.pool ? { y: world.pool.waterY, rect: world.pool } : null);
   }
 
   // ---------------------------------------------------------------- setup
@@ -109,8 +97,8 @@ export class Renderer {
   setTime(hours) {
     if (this.hours === hours && this.S) return;
     this.hours = hours;
-    this.S = skyState(hours, this.world.clouds);
-    this.ripple = hours * 0.35;
+    this.S = skyState(hours, this.world.sky || { clouds: this.world.clouds });
+    this.ripple_t = hours * 0.35;
     this.computeTriColors();
     this.shadowValid = false;
     this.reflValid = false;
@@ -136,8 +124,9 @@ export class Renderer {
       const ambR = gr + (ar - gr) * h;
       const ambG = gg + (ag - gg) * h;
       const ambB = gb + (ab - gb) * h;
-      // Painterly Lambert: lit faces stay close to their local color.
-      const lit = ndl > 0 ? 0.6 + 0.4 * ndl : 0;
+      // Three painted values for planes that face the light: full, a
+      // step down for oblique faces, another for grazing ones.
+      const lit = ndl > 0.5 ? 1 : ndl > 0.18 ? 0.84 : ndl > 0 ? 0.66 : 0;
       const cr = this.mCol[m * 3];
       const cg = this.mCol[m * 3 + 1];
       const cb = this.mCol[m * 3 + 2];
@@ -151,18 +140,23 @@ export class Renderer {
     }
   }
 
-  setCamera({ eye, target, fovY = 45 }, W, H, ss = 1) {
+  // `shift` slides the frame vertically, like the rising front of a view
+  // camera: the eye can look level (so verticals stay vertical) while the
+  // horizon sits low in the picture. The horizon lands at y_ndc = -shift.
+  setCamera({ eye, target, fovY = 45, shift = 0 }, W, H, ss = 1) {
     this.W = W;
     this.H = H;
     this.ss = ss;
     this.eye = eye;
     this.target = target;
     this.fovY = fovY;
+    this.shift = shift;
     const view = mat4LookAt(eye, target);
     const proj = mat4Perspective(fovY * DEG, W / H, 0.05, 30000);
+    proj[9] = shift;
     this.cam = { eye, vp: mat4Mul(proj, view), near: 0.05 };
     this.proj = proj;
-    this.basis = makeBasis(eye, target, fovY, W / H);
+    this.basis = makeBasis(eye, target, fovY, W / H, shift);
     projectPerspective(this.mesh, this.cam, W * ss, H * ss, 0, 0, this.st);
     this.reflValid = false;
     // Angular size of one sample, for distance-aware pattern filtering.
@@ -196,13 +190,10 @@ export class Renderer {
     }
     const N = this.shadowSize;
     const L = { right, up, dir: d, u0: umin, v1: vmax, sx: N / (umax - umin), sy: N / (vmax - vmin) };
-    if (!this.shadowDepth || this.shadowDepth.length !== N * N) {
-      this.shadowDepth = new Float32Array(N * N);
-      this.shadowIds = new Int32Array(N * N);
-    }
+    if (!this.shadowDepth || this.shadowDepth.length !== N * N) this.shadowDepth = new Float32Array(N * N);
     this.shadowDepth.fill(-Infinity);
     projectOrtho(mesh, L, N, N, CAST, DISTANT, this.sst);
-    rasterize(this.sst, 0, 0, N, N, this.shadowDepth, this.shadowIds);
+    rasterize(this.sst, 0, 0, N, N, this.shadowDepth, null);
     this.L = L;
     this.shadowTexel = Math.max(1 / L.sx, 1 / L.sy);
   }
@@ -259,14 +250,15 @@ export class Renderer {
 
   // ---------------------------------------------------------------- reflection
 
-  // Render everything above the water from a camera mirrored in the pool
-  // surface, only over the part of the frame the pool can occupy.
+  // Render everything above the water from a camera mirrored in its
+  // surface. A pool limits the work to the part of the frame it can occupy;
+  // open water mirrors the whole frame.
   buildReflection() {
     this.reflValid = true;
     this.reflOn = false;
-    const pool = this.world.pool;
-    if (!pool) return;
-    const h = pool.waterY;
+    const mirror = this.mirror;
+    if (!mirror) return;
+    const h = mirror.y;
     const e = this.eye;
     if (e[1] <= h) return;
     const tg = this.target;
@@ -274,39 +266,48 @@ export class Renderer {
     const mt = [tg[0], 2 * h - tg[1], tg[2]];
     const view = mat4LookAt(me, mt);
     const vp = mat4Mul(this.proj, view);
-    const W = this.W;
-    const H = this.H;
-    // Screen bounds of the pool rectangle in the mirrored view.
-    let x0 = Infinity;
-    let y0 = Infinity;
-    let x1 = -Infinity;
-    let y1 = -Infinity;
-    let behind = false;
-    for (const [px, pz] of [
-      [pool.x0, pool.z0],
-      [pool.x1, pool.z0],
-      [pool.x0, pool.z1],
-      [pool.x1, pool.z1],
-    ]) {
-      const cx = vp[0] * px + vp[4] * h + vp[8] * pz + vp[12];
-      const cy = vp[1] * px + vp[5] * h + vp[9] * pz + vp[13];
-      const cw = vp[3] * px + vp[7] * h + vp[11] * pz + vp[15];
-      if (cw < 0.05) {
-        behind = true;
-        break;
+    const k = this.reflScale;
+    const W = Math.max(8, Math.round(this.W * k));
+    const H = Math.max(8, Math.round(this.H * k));
+    let x0 = 0;
+    let y0 = 0;
+    let x1 = W;
+    let y1 = H;
+    const rect = mirror.rect;
+    const band = rect ? null : this.reflectionBand(H);
+    if (band) [y0, y1] = band;
+    if (rect) {
+      x0 = Infinity;
+      y0 = Infinity;
+      x1 = -Infinity;
+      y1 = -Infinity;
+      let behind = false;
+      for (const [px, pz] of [
+        [rect.x0, rect.z0],
+        [rect.x1, rect.z0],
+        [rect.x0, rect.z1],
+        [rect.x1, rect.z1],
+      ]) {
+        const cx = vp[0] * px + vp[4] * h + vp[8] * pz + vp[12];
+        const cy = vp[1] * px + vp[5] * h + vp[9] * pz + vp[13];
+        const cw = vp[3] * px + vp[7] * h + vp[11] * pz + vp[15];
+        if (cw < 0.05) {
+          behind = true;
+          break;
+        }
+        const sx = (cx / cw + 1) * 0.5 * W;
+        const sy = (1 - cy / cw) * 0.5 * H;
+        x0 = Math.min(x0, sx);
+        y0 = Math.min(y0, sy);
+        x1 = Math.max(x1, sx);
+        y1 = Math.max(y1, sy);
       }
-      const sx = (cx / cw + 1) * 0.5 * W;
-      const sy = (1 - cy / cw) * 0.5 * H;
-      x0 = Math.min(x0, sx);
-      y0 = Math.min(y0, sy);
-      x1 = Math.max(x1, sx);
-      y1 = Math.max(y1, sy);
-    }
-    if (behind) {
-      x0 = 0;
-      y0 = 0;
-      x1 = W;
-      y1 = H;
+      if (behind) {
+        x0 = 0;
+        y0 = 0;
+        x1 = W;
+        y1 = H;
+      }
     }
     const pad = 24;
     const rx0 = Math.max(0, Math.floor(x0) - pad);
@@ -315,6 +316,8 @@ export class Renderer {
     const ry1 = Math.min(H, Math.ceil(y1) + pad);
     if (rx0 >= rx1 || ry0 >= ry1) return;
     this.rcam = { eye: me, vp, near: 0.05 };
+    this.reflW = W;
+    this.reflH = H;
     projectPerspective(this.mesh, this.rcam, W, H, 0, UNDERWATER | NOREFLECT, this.rst);
     const rw = rx1 - rx0;
     const rh = ry1 - ry0;
@@ -322,11 +325,11 @@ export class Renderer {
     const ids = new Int32Array(rw * rh).fill(-1);
     rasterize(this.rst, rx0, ry0, rx1, ry1, depth, ids);
     if (!this.refl || this.refl.length !== W * H * 3) this.refl = new Float32Array(W * H * 3);
-    const B = makeBasis(me, mt, this.fovY, W / H);
+    const B = makeBasis(me, mt, this.fovY, W / H, this.shift);
     for (let y = ry0; y < ry1; y++) {
       for (let x = rx0; x < rx1; x++) {
         const nx = ((x + 0.5) / W) * 2 - 1;
-        const ny = 1 - ((y + 0.5) / H) * 2;
+        const ny = 1 - ((y + 0.5) / H) * 2 + B.sh;
         let dx = B.f[0] + B.r[0] * nx * B.tx + B.u[0] * ny * B.ty;
         let dy = B.f[1] + B.r[1] * nx * B.tx + B.u[1] * ny * B.ty;
         let dz = B.f[2] + B.r[2] * nx * B.tx + B.u[2] * ny * B.ty;
@@ -347,6 +350,54 @@ export class Renderer {
     this.reflOn = true;
   }
 
+  // Rows of the mirrored frame that open water can ever look up. For a
+  // level camera, frame row y (NDC) sees its mirror image at -y - 2 shift,
+  // so only a band of it is needed; leave room for the ripples. Null means
+  // the whole frame (a tilted camera).
+  reflectionBand(H) {
+    if (Math.abs(this.basis.f[1]) >= 1e-3) return null;
+    const sh = this.shift;
+    return [Math.max(0, ((sh - 0.08) * H) | 0), Math.min(H, Math.ceil(((1 + sh + 0.16) / 2) * H))];
+  }
+
+  // Mirrored color seen along the reflected ray from water point p whose
+  // normal is tilted by (nx, nz). Returns false if there is no mirror image.
+  sampleReflection(px, py, pz, dx, dy, dz, nx, nz, reach, out) {
+    if (!this.reflOn) return false;
+    // Tilting the normal by (nx, nz) turns the reflected ray by roughly
+    // dR = -2[(D.dn) up + D.y dn]; look up the mirrored image at the point
+    // that perturbed ray reaches a few meters on.
+    const dn = dx * nx + dz * nz;
+    const qx = px - 2 * dy * nx * reach;
+    const qy = py - 2 * dn * reach;
+    const qz = pz - 2 * dy * nz * reach;
+    const vp = this.rcam.vp;
+    const cx = vp[0] * qx + vp[4] * qy + vp[8] * qz + vp[12];
+    const cy = vp[1] * qx + vp[5] * qy + vp[9] * qz + vp[13];
+    const cw = Math.max(0.05, vp[3] * qx + vp[7] * qy + vp[11] * qz + vp[15]);
+    const [x0, y0, x1, y1] = this.reflRect;
+    const sx = clamp((cx / cw + 1) * 0.5 * this.reflW - 0.5, x0, x1 - 1.001);
+    const sy = clamp((1 - cy / cw) * 0.5 * this.reflH - 0.5, y0, y1 - 1.001);
+    const ix = Math.floor(sx);
+    const iy = Math.floor(sy);
+    const fx = sx - ix;
+    const fy = sy - iy;
+    const R = this.refl;
+    const W = this.reflW;
+    const o00 = (iy * W + ix) * 3;
+    const o10 = o00 + 3;
+    const o01 = o00 + W * 3;
+    const o11 = o01 + 3;
+    const w00 = (1 - fx) * (1 - fy);
+    const w10 = fx * (1 - fy);
+    const w01 = (1 - fx) * fy;
+    const w11 = fx * fy;
+    out[0] = R[o00] * w00 + R[o10] * w10 + R[o01] * w01 + R[o11] * w11;
+    out[1] = R[o00 + 1] * w00 + R[o10 + 1] * w10 + R[o01 + 1] * w01 + R[o11 + 1] * w11;
+    out[2] = R[o00 + 2] * w00 + R[o10 + 2] * w10 + R[o01 + 2] * w01 + R[o11 + 2] * w11;
+    return true;
+  }
+
   // ---------------------------------------------------------------- frame
 
   prepare() {
@@ -354,13 +405,15 @@ export class Renderer {
     if (!this.reflValid) this.buildReflection();
   }
 
-  render(out = new Float32Array(this.W * this.H * 3)) {
+  // Render the whole frame. Glow is laid over the finished image.
+  render(out = new Float32Array(this.W * this.H * 3), { glow = true } = {}) {
     this.prepare();
     for (let y = 0; y < this.H; y += TILE) {
       for (let x = 0; x < this.W; x += TILE) {
         this.renderTile(x, y, Math.min(this.W, x + TILE), Math.min(this.H, y + TILE), out);
       }
     }
+    if (glow) bloom(out, this.W, this.H);
     return out;
   }
 
@@ -379,9 +432,14 @@ export class Renderer {
     return list.sort((a, b) => d(a) - d(b));
   }
 
-  renderTile(px0, py0, px1, py1, out) {
+  // Render output pixels [px0, px1) x [py0, py1) into `out`: a full frame
+  // by default, or with `local` a buffer just the size of the tile.
+  renderTile(px0, py0, px1, py1, out, local = false) {
     const ss = this.ss;
     const W = this.W;
+    const stride = local ? px1 - px0 : W;
+    const ox = local ? px0 : 0;
+    const oy = local ? py0 : 0;
     const SW = W * ss;
     const SH = this.H * ss;
     const sx0 = px0 * ss;
@@ -399,25 +457,36 @@ export class Renderer {
     depth.fill(-Infinity, 0, tw * th);
     ids.fill(-1, 0, tw * th);
     rasterize(this.st, sx0, sy0, sx1, sy1, depth, ids);
-    for (let y = py0; y < py1; y++) out.fill(0, (y * W + px0) * 3, (y * W + px1) * 3);
+    for (let y = py0; y < py1; y++) out.fill(0, ((y - oy) * stride + px0 - ox) * 3, ((y - oy) * stride + px1 - ox) * 3);
     const inv = 1 / (ss * ss);
     const B = this.basis;
     const [ex, ey, ez] = this.eye;
     for (let y = sy0; y < sy1; y++) {
       const ny = 1 - ((y + 0.5) / SH) * 2;
-      const row = ((y / ss) | 0) * W;
+      const vy = ny + B.sh;
+      const row = (((y / ss) | 0) - oy) * stride - ox;
       for (let x = sx0; x < sx1; x++) {
         const nx = ((x + 0.5) / SW) * 2 - 1;
-        let dx = B.f[0] + B.r[0] * nx * B.tx + B.u[0] * ny * B.ty;
-        let dy = B.f[1] + B.r[1] * nx * B.tx + B.u[1] * ny * B.ty;
-        let dz = B.f[2] + B.r[2] * nx * B.tx + B.u[2] * ny * B.ty;
+        let dx = B.f[0] + B.r[0] * nx * B.tx + B.u[0] * vy * B.ty;
+        let dy = B.f[1] + B.r[1] * nx * B.tx + B.u[1] * vy * B.ty;
+        let dz = B.f[2] + B.r[2] * nx * B.tx + B.u[2] * vy * B.ty;
         const l = 1 / Math.sqrt(dx * dx + dy * dy + dz * dz);
         dx *= l;
         dy *= l;
         dz *= l;
         const id = ids[(y - sy0) * tw + (x - sx0)];
-        if (id < 0) this.background(ex, ey, ez, dx, dy, dz, C);
-        else this.shadeHit(id, ex, ey, ez, dx, dy, dz, C, false);
+        if (id < 0) {
+          this.background(ex, ey, ez, dx, dy, dz, C);
+          // The airbrush is heaviest at the top of the board: every frame
+          // deepens toward its upper edge, whatever the camera's pitch.
+          if (dy > 0 && ny > 0.1) {
+            const k = 0.22 * smoothstep(0.1, 1, ny);
+            const Z = this.S.zenith;
+            C[0] += (Z[0] * 0.9 - C[0]) * k;
+            C[1] += (Z[1] * 0.9 - C[1]) * k;
+            C[2] += (Z[2] * 0.95 - C[2]) * k;
+          }
+        } else this.shadeHit(id, ex, ey, ez, dx, dy, dz, C, false);
         const o = (row + ((x / ss) | 0)) * 3;
         out[o] += C[0] * inv;
         out[o + 1] += C[1] * inv;
@@ -427,7 +496,7 @@ export class Renderer {
   }
 
   background(ox, oy, oz, dx, dy, dz, out) {
-    if (dy < -1e-4 && oy > SEA_LEVEL) seaColor(this.S, ox, oy, oz, dx, dy, dz, out, this.pixelAngle);
+    if (dy < -1e-4 && oy > this.seaLevel) seaColor(this.S, this.seaLevel, ox, oy, oz, dx, dy, dz, out, this.pixelAngle);
     else skyColor(this.S, dx, dy, dz, out, true);
   }
 
@@ -457,6 +526,10 @@ export class Renderer {
       this.shadeWater(px, py, pz, dx, dy, dz, dist, out);
       return;
     }
+    if (kind === KIND.harbor) {
+      this.shadeHarbor(px, py, pz, dx, dy, dz, dist, out);
+      return;
+    }
 
     // Normal for lighting: interpolated for smooth surfaces, flipped toward
     // the viewer for two-sided ones.
@@ -464,7 +537,7 @@ export class Renderer {
     let v = 0;
     const smooth = flags & SMOOTH;
     const pat = this.mPat[m];
-    if (smooth || pat === PATTERN.trunk || pat === PATTERN.stripes || pat === PATTERN.segments || pat === PATTERN.tile) {
+    if (smooth || pat === PATTERN.trunk || pat === PATTERN.stripes || pat === PATTERN.segments || pat === PATTERN.tile || pat === PATTERN.frond) {
       const q = t * 10;
       const B = mesh.bary;
       const o = t * 9;
@@ -505,30 +578,32 @@ export class Renderer {
     const cb = this.mCol[m * 3 + 2];
     const [lx, ly, lz] = S.keyDir;
     const [kr, kg, kb] = S.key;
+    const h = 0.5 + 0.5 * ny;
+    const ar = S.ground[0] + (S.amb[0] - S.ground[0]) * h;
+    const ag = S.ground[1] + (S.amb[1] - S.ground[1]) * h;
+    const ab = S.ground[2] + (S.amb[2] - S.ground[2]) * h;
 
     if (kind === KIND.diffuse || kind === KIND.distant) {
+      let lit = 0;
       if (!smooth && !(flags & DOUBLE)) {
-        // Flat face: pick between the precomputed tones.
-        const vis = this.triNdl[t] > 0 && !(flags & DISTANT) ? this.shadow(px, py, pz, nx, ny, nz) : 0;
+        // A plane: one of the precomputed painted values.
+        lit = this.triNdl[t] > 0 && !(flags & DISTANT) ? this.shadow(px, py, pz, nx, ny, nz) : 0;
         const i3 = t * 3;
-        r = this.triShade[i3] + (this.triLit[i3] - this.triShade[i3]) * vis;
-        g = this.triShade[i3 + 1] + (this.triLit[i3 + 1] - this.triShade[i3 + 1]) * vis;
-        b = this.triShade[i3 + 2] + (this.triLit[i3 + 2] - this.triShade[i3 + 2]) * vis;
+        r = this.triShade[i3] + (this.triLit[i3] - this.triShade[i3]) * lit;
+        g = this.triShade[i3 + 1] + (this.triLit[i3 + 1] - this.triShade[i3 + 1]) * lit;
+        b = this.triShade[i3 + 2] + (this.triLit[i3 + 2] - this.triShade[i3 + 2]) * lit;
       } else {
-        // Curved face: toon bands so cylinders read as painted, not rendered.
+        // A curved form, airbrushed: a soft terminator and a sprayed sheen.
         const ndl = nx * lx + ny * ly + nz * lz;
-        let lit = ndl > 0.42 ? 1 : ndl > 0.06 ? 0.74 : 0;
+        lit = smoothstep(-0.08, 0.42, ndl);
         if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
-        const h = 0.5 + 0.5 * ny;
-        const ar = S.ground[0] + (S.amb[0] - S.ground[0]) * h;
-        const ag = S.ground[1] + (S.amb[1] - S.ground[1]) * h;
-        const ab = S.ground[2] + (S.amb[2] - S.ground[2]) * h;
-        r = cr * (ar + kr * lit * 0.92);
-        g = cg * (ag + kg * lit * 0.92);
-        b = cb * (ab + kb * lit * 0.92);
+        const sheen = ndl > 0.7 ? 0.07 * smoothstep(0.7, 0.95, ndl) * lit : 0;
+        r = cr * (ar + kr * lit * 0.95) + sheen;
+        g = cg * (ag + kg * lit * 0.95) + sheen;
+        b = cb * (ab + kb * lit * 0.95) + sheen;
       }
       if (pat !== PATTERN.none) {
-        const f = this.pattern(pat, m, px, py, pz, u, v, dist, nx, ny, nz);
+        const f = this.pattern(pat, m, px, py, pz, u, v, dist);
         if (f < 0) {
           // Negative means "use color2", keeping the lighting ratio.
           const k = -f;
@@ -541,32 +616,53 @@ export class Renderer {
           b *= f;
         }
       }
-      if (this.mAO[m]) {
-        // Walls darken a touch where they meet the ground: an airbrushed seam.
-        const a = 0.9 + 0.1 * smoothstep(0, 0.9, py);
-        r *= a;
-        g *= a;
-        b *= a;
+      if (!(flags & DISTANT)) {
+        if (ny < 0.35 && ny > -0.35) {
+          // Walls are airbrushed top to bottom: lit walls brighten upward,
+          // walls in shade pick up warm bounce light near the ground.
+          const hh = clamp(py / 7, 0, 1);
+          if (lit > 0.5) {
+            const f = 1 + 0.07 * (hh - 0.45);
+            r *= f;
+            g *= f;
+            b *= f;
+          } else {
+            const f = 1 - 0.1 * (hh - 0.45);
+            r *= f * (1 + 0.03 * (1 - hh));
+            g *= f;
+            b *= f * (1 - 0.02 * (1 - hh));
+          }
+        }
+        if (this.mAO[m]) {
+          // A soft seam where walls meet the ground.
+          const a = 0.9 + 0.1 * smoothstep(0, 0.9, py);
+          r *= a;
+          g *= a;
+          b *= a;
+        }
       }
     } else if (kind === KIND.foliage) {
       const ndl = nx * lx + ny * ly + nz * lz;
-      const h = 0.5 + 0.5 * ny;
-      const ar = S.ground[0] + (S.amb[0] - S.ground[0]) * h;
-      const ag = S.ground[1] + (S.amb[1] - S.ground[1]) * h;
-      const ab = S.ground[2] + (S.amb[2] - S.ground[2]) * h;
       if (ndl > 0) {
         const vis = this.shadow(px, py, pz, nx, ny, nz);
-        const lit = (0.55 + 0.45 * ndl) * vis;
+        const lit = (ndl > 0.4 ? 1 : 0.8) * vis;
         r = cr * (ar + kr * lit);
         g = cg * (ag + kg * lit);
         b = cb * (ab + kb * lit);
       } else {
         // Seen from the dark side, a leaf glows faintly yellow-green.
         const vis = this.shadow(px, py, pz, -nx, -ny, -nz);
-        const k = 0.22 * vis;
+        const k = 0.24 * vis;
         r = cr * (ar + kr * k * 1.1);
         g = cg * (ag + kg * k * 1.15);
         b = cb * (ab + kb * k * 0.6);
+      }
+      if (pat === PATTERN.frond) {
+        // Deep at the crown, sunnier toward the tips of the leaves.
+        const f = 0.74 + 0.3 * u + 0.16 * v;
+        r *= f * (0.96 + 0.1 * u);
+        g *= f;
+        b *= f * (1.02 - 0.08 * u);
       }
     } else if (kind === KIND.glass) {
       this.shadeGlass(t, m, px, py, pz, nx, ny, nz, dx, dy, dz, out);
@@ -580,14 +676,14 @@ export class Renderer {
       const rz = dz + 2 * c * nz;
       if (ry > 0) {
         skyColor(S, rx, ry, rz, T, false);
-        r = T[0] * 1.05;
-        g = T[1] * 1.05;
-        b = T[2] * 1.05;
+        r = T[0] * 1.08;
+        g = T[1] * 1.08;
+        b = T[2] * 1.08;
       } else {
-        const k = S.key[0] + S.amb[0];
-        r = 0.34 * k + 0.05;
-        g = 0.32 * k + 0.05;
-        b = 0.3 * k + 0.06;
+        // Chrome's hard horizon: the ground below reads dark and warm.
+        r = S.ground[0] * 0.55 + 0.04;
+        g = S.ground[1] * 0.5 + 0.04;
+        b = S.ground[2] * 0.45 + 0.05;
       }
       const ndl = nx * lx + ny * ly + nz * lz;
       if (ndl > 0) {
@@ -595,28 +691,24 @@ export class Renderer {
         const hy = ly - dy;
         const hz = lz - dz;
         const hl = Math.sqrt(hx * hx + hy * hy + hz * hz) || 1;
-        const spec = (nx * hx + ny * hy + nz * hz) / hl;
-        if (spec > 0.985) {
-          const vis = this.shadow(px, py, pz, nx, ny, nz);
-          r += (1 - r) * vis;
-          g += (1 - g) * vis;
-          b += (1 - b) * vis;
+        if ((nx * hx + ny * hy + nz * hz) / hl > 0.985) {
+          // Flat chrome catches the sun whole; the moon only a little.
+          const vis = this.shadow(px, py, pz, nx, ny, nz) * S.keyStrength;
+          r += (1.2 - r) * vis;
+          g += (1.2 - g) * vis;
+          b += (1.15 - b) * vis;
         }
       }
     } else if (kind === KIND.paint) {
-      // Car paint: flat toon base plus a sharp sky reflection.
+      // Lacquer: an airbrushed body color, a clear coat of sky, a hot glint.
       const ndl = nx * lx + ny * ly + nz * lz;
-      let lit = ndl > 0.35 ? 1 : ndl > 0.02 ? 0.78 : 0;
+      let lit = smoothstep(0.0, 0.35, ndl);
       if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
-      const h = 0.5 + 0.5 * ny;
-      const ar = S.ground[0] + (S.amb[0] - S.ground[0]) * h;
-      const ag = S.ground[1] + (S.amb[1] - S.ground[1]) * h;
-      const ab = S.ground[2] + (S.amb[2] - S.ground[2]) * h;
       r = cr * (ar + kr * lit);
       g = cg * (ag + kg * lit);
       b = cb * (ab + kb * lit);
       const c = -(nx * dx + ny * dy + nz * dz);
-      const fres = 0.05 + 0.5 * Math.pow(1 - Math.max(0, c), 4);
+      const fres = 0.06 + 0.5 * Math.pow(1 - Math.max(0, c), 4);
       const rx = dx + 2 * c * nx;
       const ry = dy + 2 * c * ny;
       const rz = dz + 2 * c * nz;
@@ -630,21 +722,23 @@ export class Renderer {
       const hy = ly - dy;
       const hz = lz - dz;
       const hl = Math.sqrt(hx * hx + hy * hy + hz * hz) || 1;
-      if (lit > 0 && (nx * hx + ny * hy + nz * hz) / hl > 0.992) {
-        r = r + (1 - r) * 0.85;
-        g = g + (1 - g) * 0.85;
-        b = b + (1 - b) * 0.85;
+      if (lit > 0 && (nx * hx + ny * hy + nz * hz) / hl > 0.99) {
+        const k = 0.85 * S.keyStrength;
+        r = r + (1.15 - r) * k;
+        g = g + (1.15 - g) * k;
+        b = b + (1.1 - b) * k;
       }
-    } else if (kind === KIND.lamp) {
+    } else if (kind === KIND.lamp || kind === KIND.neon) {
       const ndl = nx * lx + ny * ly + nz * lz;
-      const lit = ndl > 0 ? (0.5 + 0.5 * ndl) * this.shadow(px, py, pz, nx, ny, nz) : 0;
-      r = cr * (S.amb[0] + kr * lit);
-      g = cg * (S.amb[1] + kg * lit);
-      b = cb * (S.amb[2] + kb * lit);
-      const on = S.lights;
-      r += (this.mEmit[m * 3] - r) * on;
-      g += (this.mEmit[m * 3 + 1] - g) * on;
-      b += (this.mEmit[m * 3 + 2] - b) * on;
+      const lit = ndl > 0 ? (0.6 + 0.4 * ndl) * this.shadow(px, py, pz, nx, ny, nz) : 0;
+      r = cr * (ar + kr * lit);
+      g = cg * (ag + kg * lit);
+      b = cb * (ab + kb * lit);
+      // Neon burns past white so the glow pass picks it up.
+      const on = S.lights * (kind === KIND.neon ? 1.9 : 1.15);
+      r += (this.mEmit[m * 3] * on - r) * Math.min(1, S.lights * 1.2);
+      g += (this.mEmit[m * 3 + 1] * on - g) * Math.min(1, S.lights * 1.2);
+      b += (this.mEmit[m * 3 + 2] * on - b) * Math.min(1, S.lights * 1.2);
     } else {
       r = cr;
       g = cg;
@@ -652,11 +746,11 @@ export class Renderer {
     }
 
     // Warm pools of artificial light after dusk.
-    if (S.lights > 0 && kind !== KIND.lamp && kind !== KIND.glass && !(flags & DISTANT)) {
+    if (S.lights > 0 && kind !== KIND.lamp && kind !== KIND.neon && kind !== KIND.glass && !(flags & DISTANT)) {
       const lights = this.world.lights;
-      let ar = 0;
-      let ag = 0;
-      let ab = 0;
+      let lr = 0;
+      let lg = 0;
+      let lb = 0;
       for (let i = 0; i < lights.length; i++) {
         const Lt = lights[i];
         const qx = Lt.p[0] - px;
@@ -669,20 +763,21 @@ export class Renderer {
         const cos = (qx * nx + qy * ny + qz * nz) / dl;
         if (cos <= 0) continue;
         const k = (Lt.k * cos) / (1 + d2 / rr);
-        ar += Lt.c[0] * k;
-        ag += Lt.c[1] * k;
-        ab += Lt.c[2] * k;
+        lr += Lt.c[0] * k;
+        lg += Lt.c[1] * k;
+        lb += Lt.c[2] * k;
       }
       const on = S.lights;
-      r += cr * ar * on;
-      g += cg * ag * on;
-      b += cb * ab * on;
+      r += cr * lr * on;
+      g += cg * lg * on;
+      b += cb * lb * on;
     }
 
-    // Aerial perspective for far scenery.
-    if (dist > 120) {
+    // Aerial perspective: distance lays a veil of horizon color over things,
+    // gently near, heavily for far scenery.
+    if (dist > 30) {
       skyColor(S, dx, 0.0001, dz, T, false);
-      const k = flags & DISTANT ? 1 - Math.exp(-dist / 2600) : 1 - Math.exp(-(dist - 120) / 3500);
+      const k = flags & DISTANT ? 1 - Math.exp(-dist / 2600) : 0.16 * smoothstep(30, 220, dist) + (1 - 0.16) * (1 - Math.exp(-Math.max(0, dist - 220) / 3500));
       r += (T[0] - r) * k;
       g += (T[1] - g) * k;
       b += (T[2] - b) * k;
@@ -693,36 +788,37 @@ export class Renderer {
   }
 
   // Brightness factor for a procedural pattern (negative: use color2).
-  pattern(pat, m, px, py, pz, u, v, dist, nx, ny, nz) {
+  // Patterns are kept faint: a painter suggests joints, never draws them all.
+  pattern(pat, m, px, py, pz, u, v, dist) {
     const s = this.mScale[m];
-    // How big one sample is on this surface: patterns fade before they alias.
     const foot = dist * this.pixelAngle * 1.5;
     if (pat === PATTERN.deck) {
-      const w = 0.018;
+      const w = 0.012;
       const fx = (px / s) % 1;
       const fz = (pz / s) % 1;
       const ax = fx < 0 ? fx + 1 : fx;
       const az = fz < 0 ? fz + 1 : fz;
       const line = ax < w || ax > 1 - w || az < w || az > 1 - w;
-      const fade = 1 - smoothstep(s * 0.04, s * 0.12, foot);
-      const tone = 1 - 0.025 * hash2(Math.floor(px / s), Math.floor(pz / s)) * fade;
-      return line ? 1 - 0.07 * fade : tone;
+      const fade = 1 - smoothstep(s * 0.03, s * 0.1, foot);
+      return line ? 1 - 0.045 * fade : 1;
     }
-    if (pat === PATTERN.lawn) {
-      const band = Math.floor(px / (2.4 * s)) & 1;
-      return band ? 1.015 : 0.985;
+    if (pat === PATTERN.planks) {
+      const f = (px / (0.24 * s)) % 1;
+      const a = f < 0 ? f + 1 : f;
+      const fade = 1 - smoothstep(0.012, 0.05, foot);
+      return a < 0.07 ? 1 - 0.12 * fade : 1 - 0.03 * hash2(Math.floor(px / (0.24 * s)), 3) * fade;
     }
     if (pat === PATTERN.tile) {
       const w = 0.06;
       const fu = u / (0.2 * s) - Math.floor(u / (0.2 * s));
       const fv = v / (0.2 * s) - Math.floor(v / (0.2 * s));
       const fade = 1 - smoothstep(0.004, 0.02, foot);
-      return fu < w || fv < w ? 1 - 0.12 * fade : 1;
+      return fu < w || fv < w ? 1 - 0.08 * fade : 1;
     }
     if (pat === PATTERN.trunk) {
-      const f = v / (0.2 * s) - Math.floor(v / (0.2 * s));
+      const f = v / (0.22 * s) - Math.floor(v / (0.22 * s));
       const fade = 1 - smoothstep(0.02, 0.06, foot);
-      return f < 0.2 ? 1 - 0.14 * fade : 1;
+      return f < 0.18 ? 1 - 0.08 * fade : 1;
     }
     if (pat === PATTERN.stripes) {
       const k = Math.floor(u / (0.12 * s)) & 1;
@@ -732,13 +828,12 @@ export class Renderer {
       const k = Math.floor(u * s + 1e-6) & 1;
       return k ? -1 : 1;
     }
-    if (pat === PATTERN.road) {
-      const n = hash2(Math.floor(px * 7), Math.floor(pz * 7));
-      return 0.97 + 0.05 * n * (1 - smoothstep(0.02, 0.08, foot));
-    }
     return 1;
   }
 
+  // Glass, painted the way an illustrator paints it: deep ultramarine at
+  // the foot of each floor, lifting toward the sky's color at the top, with
+  // two diagonal bands of reflected light sweeping across whole facades.
   shadeGlass(t, m, px, py, pz, nx, ny, nz, dx, dy, dz, out) {
     const S = this.S;
     if (nx * dx + ny * dy + nz * dz > 0) {
@@ -746,130 +841,162 @@ export class Renderer {
       ny = -ny;
       nz = -nz;
     }
+    // Reflected sky, taken a little above the horizon.
     const c = -(nx * dx + ny * dy + nz * dz);
     const rx = dx + 2 * c * nx;
-    const ry = dy + 2 * c * ny;
     const rz = dz + 2 * c * nz;
-    if (ry > 0) skyColor(S, rx, ry, rz, T, false);
-    else {
-      T[0] = S.ground[0] * 0.8;
-      T[1] = S.ground[1] * 0.8;
-      T[2] = S.ground[2] * 0.8;
+    const rl = Math.hypot(rx, rz) || 1;
+    skyColor(S, (rx / rl) * 0.96, 0.28, (rz / rl) * 0.96, T, false);
+    const hh = (py - 0.15) / 3.3 - Math.floor((py - 0.15) / 3.3);
+    const k = 0.18 + 0.62 * Math.pow(hh, 1.35);
+    const deepR = 0.05 + S.amb[0] * 0.16;
+    const deepG = 0.09 + S.amb[1] * 0.2;
+    const deepB = 0.22 + S.amb[2] * 0.34;
+    let r = deepR + (T[0] - deepR) * k;
+    let g = deepG + (T[1] - deepG) * k;
+    let b = deepB + (T[2] - deepB) * k;
+    // Diagonal light bands in the plane of the glass.
+    let tx = -nz;
+    let tz = nx;
+    const tl = Math.hypot(tx, tz) || 1;
+    tx /= tl;
+    tz /= tl;
+    const along = px * tx + pz * tz;
+    const d = (along * 0.55 + py) / 2.6 + 0.3;
+    const f = d - Math.floor(d);
+    const band = f > 0.1 && f < 0.26 ? 0.3 : f > 0.34 && f < 0.39 ? 0.2 : 0;
+    const day = 1 - S.night;
+    if (band > 0) {
+      r += (T[0] * 1.1 + 0.08 - r) * band * day;
+      g += (T[1] * 1.1 + 0.08 - g) * band * day;
+      b += (T[2] * 1.05 + 0.06 - b) * band * day;
     }
-    const fres = 0.3 + 0.62 * Math.pow(1 - Math.max(0, c), 2);
-    // Interior: dim cool room by day, warm light by night (some rooms dark).
+    // By night most rooms are lit; some are not.
     const obj = this.mesh.obj[t];
-    const lit = hash2(obj, 7) < 0.72 ? 1 : 0.12;
-    const on = S.lights * lit;
-    const cr = this.mCol[m * 3];
-    const cg = this.mCol[m * 3 + 1];
-    const cb = this.mCol[m * 3 + 2];
     const e = this.mEmit;
-    const warm = 0.85 + 0.15 * Math.sin(py * 1.7);
-    const ir = cr * (S.amb[0] * 0.9 + 0.08) + (e[m * 3] * warm - cr * 0.1) * on;
-    const ig = cg * (S.amb[1] * 0.9 + 0.08) + (e[m * 3 + 1] * warm - cg * 0.1) * on;
-    const ib = cb * (S.amb[2] * 0.9 + 0.08) + (e[m * 3 + 2] * warm - cb * 0.1) * on;
-    const f = fres * (1 - 0.75 * on);
-    out[0] = ir + (T[0] - ir) * f;
-    out[1] = ig + (T[1] - ig) * f;
-    out[2] = ib + (T[2] - ib) * f;
+    const on = e[m * 3] + e[m * 3 + 1] + e[m * 3 + 2] > 0 ? S.lights * (hash2(obj, 7) < 0.72 ? 1 : 0.1) : 0;
+    if (on > 0) {
+      const warm = 0.9 + 0.1 * (1 - hh);
+      r += (e[m * 3] * warm * 1.22 - r) * on;
+      g += (e[m * 3 + 1] * warm * 1.22 - g) * on;
+      b += (e[m * 3 + 2] * warm * 1.22 - b) * on;
+    }
+    out[0] = r;
+    out[1] = g;
+    out[2] = b;
   }
 
-  // The pool surface: ripple normal, mirrored reflection, refraction into
-  // the tiled basin with depth absorption, caustics, and night lights.
-  shadeWater(px, py, pz, dx, dy, dz, dist, out) {
-    const S = this.S;
-    const pool = this.world.pool;
-    const tm = this.ripple;
-    // Ripple field: a few slow waves (analytic derivatives).
+  // Ripple field shared by both kinds of water: analytic derivatives give
+  // the normal tilt, and the phase gives painted bands and crest lines.
+  ripple(waves, px, pz, tm) {
     let hx = 0;
     let hz = 0;
-    const waves = pool.waves;
     for (let i = 0; i < waves.length; i++) {
       const w = waves[i];
-      const ph = w.kx * px + w.kz * pz + w.w * tm + w.p;
-      const c = Math.cos(ph) * w.a;
+      const c = Math.cos(w.kx * px + w.kz * pz + w.w * tm + w.p) * w.a;
       hx += c * w.kx;
       hz += c * w.kz;
     }
-    let nx = -hx;
+    const w0 = waves[0];
+    const w1 = waves[1];
+    const w2 = waves[2];
+    const phase =
+      w0.kx * px + w0.kz * pz + w0.w * tm + w0.p +
+      0.9 * Math.sin(w1.kx * px + w1.kz * pz + w1.w * tm + w1.p) +
+      0.45 * Math.sin(w2.kx * px + w2.kz * pz + w2.w * tm + w2.p);
+    RIP[0] = -hx;
+    RIP[1] = -hz;
+    RIP[2] = phase;
+    RIP[3] = Math.hypot(w0.kx, w0.kz);
+    RIP[4] = (-w0.kz * px + w0.kx * pz) / RIP[3];
+  }
+
+  // Painted bands and white crest lines over a water color.
+  paintWater(r, g, b, dist, strength, out) {
+    const phase = RIP[2];
+    const k0 = RIP[3];
+    const along = RIP[4];
+    const S = this.S;
+    const wave = Math.sin(phase);
+    // Broad marbled bands: a lighter and a deeper tone.
+    if (wave > 0.62) {
+      const a = 0.1 * strength * smoothstep(0.62, 0.72, wave);
+      r += (r * 1.25 + 0.03 - r) * a * 1.6;
+      g += (g * 1.18 + 0.04 - g) * a * 1.6;
+      b += (b * 1.08 + 0.04 - b) * a * 1.6;
+    } else if (wave < -0.7) {
+      const a = 0.08 * strength * smoothstep(-0.7, -0.8, wave);
+      r *= 1 - a * 1.4;
+      g *= 1 - a * 1.1;
+      b *= 1 - a * 0.7;
+    }
+    // Thin white lines riding the crests, broken into long dashes.
+    const f = phase / (Math.PI * 2);
+    const fr = Math.abs(f - Math.floor(f) - 0.5);
+    const foot = dist * this.pixelAngle * 1.5;
+    const lw = ((0.03 + foot) * k0) / (Math.PI * 2);
+    if (fr < lw) {
+      const dash = Math.sin(along * 1.6 + 2.2 * Math.sin(along * 0.55 + f * 1.7));
+      if (dash > -0.15) {
+        const a = (1 - fr / lw) * 0.6 * strength * (S.keyOn ? 1 : 0.4) * (1 - smoothstep(0.03, 0.12, foot)) * smoothstep(-0.15, 0.25, dash);
+        r += (0.97 - r) * a;
+        g += (1.02 - g) * a;
+        b += (1.02 - b) * a;
+      }
+    }
+    out[0] = r;
+    out[1] = g;
+    out[2] = b;
+  }
+
+  // The pool: refraction into a flat-tiled basin with depth absorption, a
+  // mirrored reflection, then painted bands and crest lines on top.
+  shadeWater(px, py, pz, dx, dy, dz, dist, out) {
+    const S = this.S;
+    const pool = this.world.pool;
+    const tm = this.ripple_t;
+    this.ripple(pool.waves, px, pz, tm);
+    let nx = RIP[0];
     let ny = 1;
-    let nz = -hz;
+    let nz = RIP[1];
     const nl = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
     nx *= nl;
     ny *= nl;
     nz *= nl;
     const cosi = Math.max(0, -(nx * dx + ny * dy + nz * dz));
     // Stylized Fresnel: reflections never swamp the turquoise.
-    const fres = 0.04 + 0.62 * Math.pow(1 - cosi, 4);
-
-    // Reflection.
+    const fres = 0.04 + 0.58 * Math.pow(1 - cosi, 4);
     let rr;
     let rg;
     let rb;
-    if (this.reflOn) {
-      // Tilting the normal by (nx, nz) turns the reflected ray by roughly
-      // dR = -2[(D.dn) up + D.y dn]; look up the mirrored image at the
-      // point that perturbed ray reaches a few meters on.
-      const dn = dx * nx + dz * nz;
-      const reach = 7;
-      const qx = px - 2 * dy * nx * reach;
-      const qy = py - 2 * dn * reach;
-      const qz = pz - 2 * dy * nz * reach;
-      const vp = this.rcam.vp;
-      const cx = vp[0] * qx + vp[4] * qy + vp[8] * qz + vp[12];
-      const cy = vp[1] * qx + vp[5] * qy + vp[9] * qz + vp[13];
-      const cw = Math.max(0.05, vp[3] * qx + vp[7] * qy + vp[11] * qz + vp[15]);
-      let sx = (cx / cw + 1) * 0.5 * this.W - 0.5;
-      let sy = (1 - cy / cw) * 0.5 * this.H - 0.5;
-      const [x0, y0, x1, y1] = this.reflRect;
-      sx = clamp(sx, x0, x1 - 1.001);
-      sy = clamp(sy, y0, y1 - 1.001);
-      const ix = Math.floor(sx);
-      const iy = Math.floor(sy);
-      const fx = sx - ix;
-      const fy = sy - iy;
-      const R = this.refl;
-      const W = this.W;
-      const o00 = (iy * W + ix) * 3;
-      const o10 = o00 + 3;
-      const o01 = o00 + W * 3;
-      const o11 = o01 + 3;
-      const w00 = (1 - fx) * (1 - fy);
-      const w10 = fx * (1 - fy);
-      const w01 = (1 - fx) * fy;
-      const w11 = fx * fy;
+    if (this.sampleReflection(px, py, pz, dx, dy, dz, nx, nz, 7, T)) {
       // Reflections take on the water's own tint.
-      rr = (R[o00] * w00 + R[o10] * w10 + R[o01] * w01 + R[o11] * w11) * 0.8;
-      rg = (R[o00 + 1] * w00 + R[o10 + 1] * w10 + R[o01 + 1] * w01 + R[o11 + 1] * w11) * 0.95;
-      rb = R[o00 + 2] * w00 + R[o10 + 2] * w10 + R[o01 + 2] * w01 + R[o11 + 2] * w11;
+      rr = T[0] * 0.8;
+      rg = T[1] * 0.95;
+      rb = T[2];
     } else {
-      const c = cosi;
-      skyColor(S, dx + 2 * c * nx, Math.abs(dy + 2 * c * ny), dz + 2 * c * nz, T, false);
+      skyColor(S, dx + 2 * cosi * nx, Math.abs(dy + 2 * cosi * ny), dz + 2 * cosi * nz, T, false);
       rr = T[0];
       rg = T[1];
       rb = T[2];
     }
-
     // Refraction into the basin (Snell, n = 1.333).
     const eta = 1 / 1.333;
-    const k = 1 - eta * eta * (1 - cosi * cosi);
-    let tx = eta * dx + (eta * cosi - Math.sqrt(Math.max(0, k))) * nx;
-    let ty = eta * dy + (eta * cosi - Math.sqrt(Math.max(0, k))) * ny;
-    let tz = eta * dz + (eta * cosi - Math.sqrt(Math.max(0, k))) * nz;
+    const kk = Math.sqrt(Math.max(0, 1 - eta * eta * (1 - cosi * cosi)));
+    let tx = eta * dx + (eta * cosi - kk) * nx;
+    let ty = eta * dy + (eta * cosi - kk) * ny;
+    let tz = eta * dz + (eta * cosi - kk) * nz;
     const tl = 1 / Math.sqrt(tx * tx + ty * ty + tz * tz);
     tx *= tl;
     ty *= tl;
     tz *= tl;
     if (ty > -0.02) ty = -0.02;
-    // Nearest basin face along the refracted ray.
     let tHit = (pool.floorY - py) / ty;
     let face = 0; // 0 floor, 1 x-wall, 2 z-wall
     let fnx = 0;
     let fnz = 0;
     if (tx !== 0) {
-      const wx = tx > 0 ? pool.x1 : pool.x0;
-      const tw = (wx - px) / tx;
+      const tw = ((tx > 0 ? pool.x1 : pool.x0) - px) / tx;
       if (tw > 0 && tw < tHit) {
         tHit = tw;
         face = 1;
@@ -877,8 +1004,7 @@ export class Renderer {
       }
     }
     if (tz !== 0) {
-      const wz = tz > 0 ? pool.z1 : pool.z0;
-      const tw = (wz - pz) / tz;
+      const tw = ((tz > 0 ? pool.z1 : pool.z0) - pz) / tz;
       if (tw > 0 && tw < tHit) {
         tHit = tw;
         face = 2;
@@ -891,45 +1017,24 @@ export class Renderer {
     const qz = pz + tz * tHit;
     const fny = face === 0 ? 1 : 0;
     if (face === 1) fnz = 0;
-    // Tile color and a dark lane line down the middle of the floor.
     let tr = pool.tile[0];
     let tg = pool.tile[1];
     let tb = pool.tile[2];
     if (face === 0) {
       const lane = Math.abs(qz - (pool.z0 + pool.z1) * 0.5);
-      const onLane = lane < 0.16 && qx > pool.x0 + 1.2 && qx < pool.x1 - 1.2;
-      if (onLane) {
+      if (lane < 0.16 && qx > pool.x0 + 1.2 && qx < pool.x1 - 1.2) {
         tr = pool.lane[0];
         tg = pool.lane[1];
         tb = pool.lane[2];
       }
     }
-    const gu = face === 1 ? qz : qx;
-    const gv = face === 0 ? qz : qy;
-    const fu = gu / 0.25 - Math.floor(gu / 0.25);
-    const fv = gv / 0.25 - Math.floor(gv / 0.25);
-    if (fu < 0.05 || fv < 0.05) {
-      tr *= 0.9;
-      tg *= 0.94;
-      tb *= 0.95;
-    }
     const [lx, ly, lz] = S.keyDir;
     const ndl = fnx * lx + fny * ly + fnz * lz;
-    let vis = ndl > 0 ? this.shadow(qx, qy, qz, fnx, fny, fnz) : 0;
-    let light = S.amb[1] * 0.9 + (S.key[1] * (0.45 + 0.55 * Math.max(0, ndl))) * vis;
-    let ir = tr * (S.amb[0] * 0.9 + S.key[0] * (0.45 + 0.55 * Math.max(0, ndl)) * vis);
-    let ig = tg * light;
-    let ib = tb * (S.amb[2] * 0.9 + S.key[2] * (0.45 + 0.55 * Math.max(0, ndl)) * vis);
-    // Caustics: a slow, warped net of light on the floor where the sun reaches.
-    if (vis > 0 && face === 0) {
-      const wx = qx * 1.15 + 0.4 * Math.sin(qz * 1.7 + tm);
-      const wz = qz * 1.15 + 0.4 * Math.sin(qx * 1.3 - tm * 0.8);
-      const e = worleyEdge(wx + tm * 0.21, wz - tm * 0.17);
-      const c = (1 - smoothstep(0.0, 0.06, e)) * 0.4 * vis;
-      ir += S.key[0] * c;
-      ig += S.key[1] * c;
-      ib += S.key[2] * c;
-    }
+    const vis = ndl > 0 ? this.shadow(qx, qy, qz, fnx, fny, fnz) : 0;
+    const q = (0.55 + 0.45 * Math.max(0, ndl)) * vis;
+    let ir = tr * (S.amb[0] * 0.92 + S.key[0] * q);
+    let ig = tg * (S.amb[1] * 0.92 + S.key[1] * q);
+    let ib = tb * (S.amb[2] * 0.92 + S.key[2] * q);
     // Underwater lights at night.
     if (S.lights > 0) {
       const glow = S.lights * (0.55 + 0.45 * Math.exp(-Math.abs(qy - pool.floorY - 0.9) * 0.8));
@@ -938,58 +1043,162 @@ export class Renderer {
       ib += pool.glow[2] * glow;
     }
     // Absorption along the path from surface to basin.
-    const path = tHit;
-    const ar = Math.exp(-path * 0.6);
-    const ag = Math.exp(-path * 0.13);
-    const ab = Math.exp(-path * 0.075);
+    const ar = Math.exp(-tHit * 0.6);
+    const ag = Math.exp(-tHit * 0.13);
+    const ab = Math.exp(-tHit * 0.075);
     const wr = pool.water[0] * (S.amb[0] + S.key[0] * 0.6 + S.lights * 0.7);
     const wg = pool.water[1] * (S.amb[1] + S.key[1] * 0.6 + S.lights * 0.7);
     const wb = pool.water[2] * (S.amb[2] + S.key[2] * 0.6 + S.lights * 0.7);
     ir = ir * ar + wr * (1 - ar);
     ig = ig * ag + wg * (1 - ag);
     ib = ib * ab + wb * (1 - ab);
-    let r = ir + (rr - ir) * fres;
-    let g = ig + (rg - ig) * fres;
-    let b = ib + (rb - ib) * fres;
-    // Light lines: long wavy dashes riding the crests of the dominant
-    // ripple, bent by the others. World-anchored, so they hold still while
-    // the camera moves, and thinner with distance.
-    const w0 = waves[0];
-    const w1 = waves[1];
-    const w2 = waves[2];
-    const k0 = Math.hypot(w0.kx, w0.kz);
-    const ph =
-      w0.kx * px + w0.kz * pz + w0.w * tm + w0.p +
-      0.9 * Math.sin(w1.kx * px + w1.kz * pz + w1.w * tm + w1.p) +
-      0.45 * Math.sin(w2.kx * px + w2.kz * pz + w2.w * tm + w2.p);
-    const f = ph / (Math.PI * 2);
-    const fr = Math.abs(f - Math.floor(f) - 0.5);
-    const foot = dist * this.pixelAngle * 1.5;
-    const lw = ((0.035 + foot) * k0) / (Math.PI * 2);
-    if (fr < lw) {
-      const along = (-w0.kz * px + w0.kx * pz) / k0;
-      const dash = Math.sin(along * 1.6 + 2.2 * Math.sin(along * 0.55 + f * 1.7));
-      if (dash > -0.15) {
-        const a = (1 - fr / lw) * 0.6 * (S.keyOn ? 1 : 0.4) * (1 - smoothstep(0.03, 0.12, foot)) * smoothstep(-0.15, 0.25, dash);
-        r += (0.96 - r) * a;
-        g += (1.0 - g) * a;
-        b += (1.0 - b) * a;
+    this.paintWater(ir + (rr - ir) * fres, ig + (rg - ig) * fres, ib + (rb - ib) * fres, dist, 1, out);
+  }
+
+  // Open water: a deep body color that cools with distance, the mirrored
+  // world on top, broad painted bands and a scatter of crest lines.
+  shadeHarbor(px, py, pz, dx, dy, dz, dist, out) {
+    const S = this.S;
+    const W = this.world.water;
+    this.ripple(W.waves, px, pz, this.ripple_t);
+    let nx = RIP[0];
+    let ny = 1;
+    let nz = RIP[1];
+    const nl = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+    nx *= nl;
+    ny *= nl;
+    nz *= nl;
+    const cosi = Math.max(0, -(nx * dx + ny * dy + nz * dz));
+    const fres = 0.1 + 0.62 * Math.pow(1 - cosi, 3);
+    const k = 1 - Math.exp(-dist / (W.falloff ?? 160));
+    let wr = W.near[0] + (W.far[0] - W.near[0]) * k;
+    let wg = W.near[1] + (W.far[1] - W.near[1]) * k;
+    let wb = W.near[2] + (W.far[2] - W.near[2]) * k;
+    const sh = W.shallow;
+    if (sh) {
+      // Shallows over sand: aqua at the shore, deepening offshore.
+      const depth = sh.a[0] * px + sh.a[1] * pz - sh.d;
+      const a = Math.exp(-Math.max(0, depth) / sh.w);
+      wr += (sh.color[0] - wr) * a;
+      wg += (sh.color[1] - wg) * a;
+      wb += (sh.color[2] - wb) * a;
+    }
+    let br = wr * (S.amb[0] + S.key[0] * 0.55);
+    let bg = wg * (S.amb[1] + S.key[1] * 0.55);
+    let bb = wb * (S.amb[2] + S.key[2] * 0.55);
+    if (this.sampleReflection(px, py, pz, dx, dy, dz, nx, nz, 12, T)) {
+      br += (T[0] * 0.85 - br) * fres;
+      bg += (T[1] * 0.95 - bg) * fres;
+      bb += (T[2] - bb) * fres;
+    } else {
+      skyColor(S, dx, -dy, dz, T, false);
+      br += (T[0] - br) * fres;
+      bg += (T[1] - bg) * fres;
+      bb += (T[2] - bb) * fres;
+    }
+    // A low sun lays a path of broken dashes across the water.
+    const sd = S.sunDir;
+    if (S.keyOn && sd[1] > -0.02 && sd[1] < 0.55) {
+      const c = dx * sd[0] - dy * sd[1] + dz * sd[2];
+      const spread = 0.955 + 0.035 * smoothstep(0, 0.5, sd[1]);
+      if (c > spread) {
+        const nse = valueNoise(px * 0.09 + RIP[2] * 0.08, pz * 0.9 + px * 0.02);
+        const dash = smoothstep(0.5, 0.6, nse);
+        const kk = dash * smoothstep(spread, 0.999, c) * (1 - smoothstep(0.3, 0.55, sd[1]));
+        const warm = smoothstep(15, 0, S.sunEl);
+        br += (1.08 - br) * kk;
+        bg += (lerp(1.02, 0.84, warm) - bg) * kk;
+        bb += (lerp(0.92, 0.58, warm) - bb) * kk;
       }
     }
-    out[0] = r;
-    out[1] = g;
-    out[2] = b;
+    this.paintWater(br, bg, bb, dist, 0.7, out);
   }
 }
 
-function makeBasis(eye, target, fovY, aspect) {
+// Scratch for the ripple field: tilt x, tilt z, phase, |k0|, along-crest.
+const RIP = new Float64Array(5);
+
+function makeBasis(eye, target, fovY, aspect, shift = 0) {
   const f = normalize(sub(target, eye));
   let r = cross(f, [0, 1, 0]);
   if (Math.hypot(r[0], r[1], r[2]) < 1e-9) r = cross(f, [0, 0, 1]);
   r = normalize(r);
   const u = cross(r, f);
   const ty = Math.tan((fovY * DEG) / 2);
-  return { f, r, u, ty, tx: ty * aspect };
+  return { f, r, u, ty, tx: ty * aspect, sh: shift };
+}
+
+// Sprayed glow: whatever burns past white (the sun, neon, lamps, lit
+// windows) bleeds softly into its surroundings. Three box blurs at half
+// resolution approximate a gaussian.
+export function bloom(img, W, H, { threshold = 1.1, strength = 0.9, radius = 0.012 } = {}) {
+  const w = Math.max(1, W >> 1);
+  const h = Math.max(1, H >> 1);
+  let a = new Float32Array(w * h * 3);
+  let any = false;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 3;
+      for (let c = 0; c < 3; c++) {
+        let s = 0;
+        for (let j = 0; j < 2; j++) {
+          for (let i = 0; i < 2; i++) {
+            const xx = Math.min(W - 1, x * 2 + i);
+            const yy = Math.min(H - 1, y * 2 + j);
+            s += Math.max(0, img[(yy * W + xx) * 3 + c] - threshold);
+          }
+        }
+        a[o + c] = s * 0.25;
+        if (s > 0) any = true;
+      }
+    }
+  }
+  if (!any) return img;
+  let b = new Float32Array(a.length);
+  const R = Math.max(1, Math.round(radius * H * 0.5));
+  for (let pass = 0; pass < 3; pass++) {
+    boxBlur(a, b, w, h, R, true);
+    boxBlur(b, a, w, h, R, false);
+  }
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const fx = Math.min(w - 1.001, Math.max(0, x / 2 - 0.25));
+      const fy = Math.min(h - 1.001, Math.max(0, y / 2 - 0.25));
+      const ix = Math.floor(fx);
+      const iy = Math.floor(fy);
+      const ax = fx - ix;
+      const ay = fy - iy;
+      const o = (y * W + x) * 3;
+      for (let c = 0; c < 3; c++) {
+        const v00 = a[(iy * w + ix) * 3 + c];
+        const v10 = a[(iy * w + ix + 1) * 3 + c];
+        const v01 = a[((iy + 1) * w + ix) * 3 + c];
+        const v11 = a[((iy + 1) * w + ix + 1) * 3 + c];
+        img[o + c] += ((v00 * (1 - ax) + v10 * ax) * (1 - ay) + (v01 * (1 - ax) + v11 * ax) * ay) * strength * 2.2;
+      }
+    }
+  }
+  return img;
+}
+
+function boxBlur(src, dst, w, h, R, horizontal) {
+  const n = horizontal ? w : h;
+  const lines = horizontal ? h : w;
+  const inv = 1 / (2 * R + 1);
+  for (let l = 0; l < lines; l++) {
+    for (let c = 0; c < 3; c++) {
+      let acc = 0;
+      const at = (i) => {
+        const k = Math.min(n - 1, Math.max(0, i));
+        return horizontal ? (l * w + k) * 3 + c : (k * w + l) * 3 + c;
+      };
+      for (let i = -R; i <= R; i++) acc += src[at(i)];
+      for (let i = 0; i < n; i++) {
+        dst[at(i)] = acc * inv;
+        acc += src[at(i + R + 1)] - src[at(i - R)];
+      }
+    }
+  }
 }
 
 // Soft shoulder above 0.82 so highlights roll off instead of clipping.
@@ -998,19 +1207,23 @@ function shoulder(x) {
   return 0.82 + 0.18 * (1 - Math.exp(-(x - 0.82) / 0.18));
 }
 
-// 4x4 Bayer matrix: an ordered dither against gradient banding that, unlike
-// random noise, still compresses well.
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16 - 0.5);
-
-// Float RGB -> RGBA8, optionally just for the rect [x0, x1) x [y0, y1).
-export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H) {
+/**
+ * Float RGB -> RGBA8, optionally just for the rect [x0, x1) x [y0, y1).
+ * A fine, fixed grain stands in for the tooth of acrylic sprayed on board;
+ * it is strongest in the midtones so whites stay clean. It also dithers.
+ */
+export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H, grain = 0.024) {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = y * W + x;
-      const d = BAYER[(y & 3) * 4 + (x & 3)] / 255;
-      rgba[i * 4] = (shoulder(img[i * 3]) + d) * 255;
-      rgba[i * 4 + 1] = (shoulder(img[i * 3 + 1]) + d) * 255;
-      rgba[i * 4 + 2] = (shoulder(img[i * 3 + 2]) + d) * 255;
+      const r = shoulder(img[i * 3]);
+      const g = shoulder(img[i * 3 + 1]);
+      const b = shoulder(img[i * 3 + 2]);
+      const l = 0.3 * r + 0.55 * g + 0.15 * b;
+      const n = (hash2(x * 7 + 13, y * 11 + 5) + hash2(x * 3 - 71, y * 5 + 29) - 1) * grain * (0.3 + 2.8 * l * (1 - l));
+      rgba[i * 4] = (r + n) * 255;
+      rgba[i * 4 + 1] = (g + n) * 255;
+      rgba[i * 4 + 2] = (b + n) * 255;
       rgba[i * 4 + 3] = 255;
     }
   }

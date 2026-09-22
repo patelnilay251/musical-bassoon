@@ -1,5 +1,5 @@
 // Things people leave behind: loungers, a towel, a book, an umbrella, a
-// pool float, a car. Each is modeled in its own local frame; the world
+// pool float. Each is modeled in its own local frame; the world
 // places it with the builder's transform stack.
 
 import { CAST, DOUBLE, SMOOTH } from '../mesh.js';
@@ -60,7 +60,7 @@ export function addSideTable(b, M, { glass = false } = {}) {
   }
 }
 
-export function addUmbrella(b, M, open = true) {
+export function addUmbrella(b, M, open = true, [ca, cb] = [M.canvasA, M.canvasB]) {
   b.object();
   b.use(M.pole, CAST);
   b.cylinder(0.28, 0.24, 0, 0.08, 12);
@@ -76,7 +76,7 @@ export function addUmbrella(b, M, open = true) {
       const a1 = ((i + 1) / n) * Math.PI * 2;
       const p0 = [R * Math.cos(a0), rim, -R * Math.sin(a0)];
       const p1 = [R * Math.cos(a1), rim, -R * Math.sin(a1)];
-      b.use(i % 2 ? M.canvasA : M.canvasB, CAST | DOUBLE);
+      b.use(i % 2 ? ca : cb, CAST | DOUBLE);
       b.tri([0, apex, 0], p0, p1);
       b.quad(p0, [p0[0], rim - 0.15, p0[2]], [p1[0], rim - 0.15, p1[2]], p1);
     }
@@ -86,9 +86,9 @@ export function addUmbrella(b, M, open = true) {
     b.sphere(0.05, 6, 4);
     b.pop();
   } else {
-    b.use(M.canvasA, CAST | SMOOTH);
-    b.cylinder(0.03, 0.15, 1.3, 2.45, n, { caps: false, matFor: (i) => (i % 2 ? M.canvasA : M.canvasB) });
-    b.use(M.canvasB, CAST);
+    b.use(ca, CAST | SMOOTH);
+    b.cylinder(0.03, 0.15, 1.3, 2.45, n, { caps: false, matFor: (i) => (i % 2 ? ca : cb) });
+    b.use(cb, CAST);
     b.cylinder(0.15, 0.0, 2.45, 2.62, n, { caps: false });
   }
 }
@@ -158,103 +158,4 @@ export function addLamp(b, M, x, z, base = 0) {
   b.sphere(0.21, 10, 7);
   b.pop();
   return { p: [x, base + 2.7, z], c: [1.0, 0.8, 0.52], r: 3.4, k: 0.95 };
-}
-
-// A late-seventies convertible, nose along local +x.
-export function addCar(b, M) {
-  b.object();
-  const xf = 1.42;
-  const xr = -1.48;
-  const Ra = 0.43;
-  const arch = (xc, fromFront) => {
-    const pts = [];
-    for (let i = 0; i <= 8; i++) {
-      const a = fromFront ? (i / 8) * Math.PI : Math.PI - (i / 8) * Math.PI;
-      pts.push([xc + Ra * Math.cos(a), 0.34 + Ra * Math.sin(a)]);
-    }
-    return pts;
-  };
-  const profile = [
-    [-2.3, 0.3],
-    [-2.38, 0.62],
-    [-2.32, 0.86],
-    [-1.0, 0.9],
-    [-1.0, 0.62],
-    [0.9, 0.62],
-    [0.9, 0.9],
-    [2.1, 0.84],
-    [2.36, 0.74],
-    [2.4, 0.34],
-    [2.2, 0.22],
-    [xf + Ra, 0.22],
-    ...arch(xf, true),
-    [xf - Ra, 0.22],
-    [xr + Ra, 0.22],
-    ...arch(xr, true),
-    [xr - Ra, 0.22],
-    [-2.1, 0.22],
-  ];
-  const half = 0.92;
-  b.use(M.paint, CAST);
-  b.profile(profile, -half, half);
-  // Doors rise above the tub to the belt line. The tub starts behind the
-  // rear arch (which tops out at y = 0.77) so the side profile stays simple.
-  b.box(-1.0, 0.62, half - 0.11, 0.9, 0.9, half);
-  b.box(-1.0, 0.62, -half, 0.9, 0.9, -half + 0.11);
-  // Cream interior.
-  b.use(M.leather, CAST);
-  b.box(-1.0, 0.62, -half + 0.11, 0.9, 0.66, half - 0.11, 'ny');
-  for (const zc of [-0.42, 0.42]) {
-    b.box(-0.4, 0.66, zc - 0.3, 0.15, 0.8, zc + 0.3);
-    b.push();
-    b.translate(-0.42, 0.66, zc);
-    b.rotateZ(0.18);
-    b.box(-0.12, 0, -0.29, 0.02, 0.56, 0.29);
-    b.pop();
-  }
-  b.box(-0.98, 0.66, -0.7, -0.66, 0.76, 0.7);
-  b.box(-1.0, 0.66, -0.7, -0.9, 0.98, 0.7);
-  // Windshield: chrome frame, tinted glass.
-  b.use(M.chrome, CAST | SMOOTH);
-  for (const zc of [-0.8, 0.8]) b.tube([[0.9, 0.9, zc], [0.62, 1.33, zc]], [0.025, 0.025], 6);
-  b.tube([[0.62, 1.33, -0.8], [0.62, 1.33, 0.8]], [0.025, 0.025], 6);
-  b.object();
-  b.use(M.glass, DOUBLE);
-  b.quad([0.9, 0.9, -0.78], [0.9, 0.9, 0.78], [0.63, 1.32, 0.78], [0.63, 1.32, -0.78]);
-  // Steering wheel.
-  b.use(M.tire, CAST | SMOOTH);
-  const ring = [];
-  for (let i = 0; i <= 14; i++) {
-    const a = (i / 14) * Math.PI * 2;
-    ring.push([0.55 + 0.05 * Math.sin(a), 1.0 + 0.17 * Math.sin(a), -0.42 + 0.17 * Math.cos(a)]);
-  }
-  b.tube(ring, ring.map(() => 0.016), 5);
-  // Wheels with chrome hubcaps.
-  for (const xc of [xf, xr]) {
-    for (const side of [-1, 1]) {
-      b.push();
-      b.translate(xc, 0.34, side * (half - 0.12));
-      b.rotateX(side * Math.PI / 2);
-      b.use(M.tire, CAST | SMOOTH);
-      b.cylinder(0.34, 0.34, -0.12, 0.12, 16);
-      b.use(M.chrome, CAST);
-      b.cylinder(0.19, 0.17, 0.12, 0.14, 12);
-      b.pop();
-    }
-  }
-  // Bumpers, lights, grille.
-  b.use(M.chrome, CAST);
-  b.box(2.36, 0.26, -half + 0.04, 2.48, 0.4, half - 0.04);
-  b.box(-2.48, 0.26, -half + 0.04, -2.34, 0.4, half - 0.04);
-  b.box(2.37, 0.44, -0.42, 2.41, 0.6, 0.42);
-  b.use(M.headlight, CAST | SMOOTH);
-  for (const zc of [-0.66, 0.66]) {
-    b.push();
-    b.translate(2.37, 0.62, zc);
-    b.rotateZ(-Math.PI / 2);
-    b.cylinder(0.1, 0.1, 0, 0.04, 12);
-    b.pop();
-  }
-  b.use(M.taillight, CAST);
-  for (const s of [-1, 1]) b.box(-2.41, 0.6, s > 0 ? 0.5 : -0.82, -2.36, 0.72, s > 0 ? 0.82 : -0.5);
 }

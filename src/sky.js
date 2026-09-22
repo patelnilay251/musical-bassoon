@@ -1,13 +1,17 @@
-// Time of day: the sun's real path, the sky palette it implies, and the
-// functions that color any ray that escapes the world (sky and sea).
+// Time of day: the sun's real path, the palette it implies, and the
+// painters for anything a ray reaches without hitting geometry: sky and sea.
 //
-// World axes: +x east, +y up, +z south. The sea lies to the west.
+// The sky is built the way it would be airbrushed: an ultramarine ground,
+// white mist sprayed up from the horizon, blue layered back over it toward
+// the zenith, and never perfectly even.
+//
+// World axes: +x east, +y up, +z south.
 
 import { DEG, clamp, lerp, smoothstep, hex, hash2, valueNoise } from './math.js';
 
 export const LATITUDE = 34 * DEG; // Southern California
 export const DECLINATION = 19 * DEG; // late July: the long end of summer
-export const SEA_LEVEL = -14;
+export const SEA_LEVEL = -14; // the house sits on a cliff; other places override it
 
 // Solar position from the hour angle. Returns a unit vector toward the sun.
 export function sunDirection(hours, lat = LATITUDE, dec = DECLINATION) {
@@ -23,23 +27,23 @@ export function moonDirection(hours) {
   return sunDirection(hours - 12 - 1.6, LATITUDE, -6 * DEG);
 }
 
-// Palette keyframes by solar elevation (degrees). Each moment names a
-// light tone and a shade tone directly, the way an illustrator would:
-// a lit face is its local color times `light`, a face in shadow is its
-// local color times `shade`. Shadows are a change of hue, not a loss of it.
+// Palette keyframes by solar elevation (degrees). Each moment names a light
+// tone and a shade tone directly, the way an illustrator would: a lit face
+// is its local color times `light`, a face in shadow its local color times
+// `shade`. Shadows are a change of hue, not a loss of it.
 const KEYS = [
-  { el: -18, zenith: '#050a22', horizon: '#141d49', sunSide: '#18204e', light: '#262c68', shade: '#262c68', glow: '#000000', glowK: 0, cloudLit: '#28305e', cloudShade: '#141a3c', seaNear: '#070d2e', seaFar: '#141c48' },
-  { el: -9, zenith: '#0c1440', horizon: '#2e3474', sunSide: '#4c3f80', light: '#383c7e', shade: '#383c7e', glow: '#6a4a8a', glowK: 0.15, cloudLit: '#4a4580', cloudShade: '#1f2352', seaNear: '#0c1540', seaFar: '#2a3070' },
-  { el: -4, zenith: '#18236a', horizon: '#6b5a9e', sunSide: '#c26e84', light: '#5a5898', shade: '#5a5898', glow: '#d27886', glowK: 0.3, cloudLit: '#b07a9e', cloudShade: '#44447e', seaNear: '#172062', seaFar: '#6a5a9a' },
-  { el: -0.8, zenith: '#26348a', horizon: '#c182a8', sunSide: '#fb9a66', light: '#7a6aa8', shade: '#7a6aa8', glow: '#ff9058', glowK: 0.5, cloudLit: '#f7a58e', cloudShade: '#6e5f9c', seaNear: '#233282', seaFar: '#c08aa8' },
-  { el: 2.5, zenith: '#2c4398', horizon: '#e0a0a8', sunSide: '#ffb070', light: '#ffb38a', shade: '#8a7cb8', glow: '#ffa060', glowK: 0.55, cloudLit: '#ffbd94', cloudShade: '#8a78ae', seaNear: '#26409a', seaFar: '#dca0a4' },
-  { el: 7, zenith: '#3155b4', horizon: '#ecd0c0', sunSide: '#ffcc90', light: '#ffd4a2', shade: '#9290c8', glow: '#ffc080', glowK: 0.4, cloudLit: '#ffe0b8', cloudShade: '#a4a2c8', seaNear: '#2750a8', seaFar: '#c8c4d0' },
-  { el: 15, zenith: '#2a5cc0', horizon: '#cde4ee', sunSide: '#f4e2c4', light: '#ffecce', shade: '#8f9bd3', glow: '#fff0d0', glowK: 0.22, cloudLit: '#fff6e6', cloudShade: '#b4c0e0', seaNear: '#2358b4', seaFar: '#9cc4e4' },
-  { el: 30, zenith: '#1f58c2', horizon: '#b0dcf0', sunSide: '#d4ecf2', light: '#fff6e6', shade: '#8ea1d9', glow: '#ffffff', glowK: 0.14, cloudLit: '#ffffff', cloudShade: '#bccbe8', seaNear: '#1d56b8', seaFar: '#7ab4e2' },
-  { el: 75, zenith: '#174dba', horizon: '#9fd4f0', sunSide: '#bfe4f4', light: '#fff9ee', shade: '#8fa4dc', glow: '#ffffff', glowK: 0.12, cloudLit: '#ffffff', cloudShade: '#bfd0ec', seaNear: '#1a52b6', seaFar: '#6aaee0' },
+  { el: -18, zenith: '#03061c', mid: '#08102e', horizon: '#151c44', sunSide: '#171e48', light: '#1d2356', shade: '#1d2356', glow: '#000000', glowK: 0, cloudLit: '#242b58', cloudShade: '#10163a', seaNear: '#050b28', seaFar: '#121a42' },
+  { el: -9, zenith: '#080e34', mid: '#171e56', horizon: '#30336c', sunSide: '#473a72', light: '#30356f', shade: '#30356f', glow: '#6a4a8a', glowK: 0.15, cloudLit: '#443f78', cloudShade: '#1d214c', seaNear: '#0a1238', seaFar: '#262c66' },
+  { el: -4, zenith: '#111b5a', mid: '#2f3278', horizon: '#76599a', sunSide: '#b86a88', light: '#4c4b8e', shade: '#4c4b8e', glow: '#d27886', glowK: 0.3, cloudLit: '#a57498', cloudShade: '#42427c', seaNear: '#121a58', seaFar: '#665796' },
+  { el: -0.8, zenith: '#1b2b80', mid: '#554a98', horizon: '#d383a0', sunSide: '#f98d60', light: '#665a9e', shade: '#665a9e', glow: '#ff9058', glowK: 0.5, cloudLit: '#f7a58e', cloudShade: '#6e5f9c', seaNear: '#1b2c7c', seaFar: '#b98aa6' },
+  { el: 2.5, zenith: '#1f3590', mid: '#6c5fa6', horizon: '#f0a19c', sunSide: '#ffb069', light: '#ffac7a', shade: '#6e5ca6', glow: '#ffa060', glowK: 0.55, cloudLit: '#ffbd94', cloudShade: '#8a74ae', seaNear: '#1f358a', seaFar: '#d99aa0' },
+  { el: 7, zenith: '#1d43a8', mid: '#4f74c4', horizon: '#f3d7bf', sunSide: '#ffca8e', light: '#ffd29c', shade: '#7676b8', glow: '#ffc080', glowK: 0.4, cloudLit: '#ffe1b8', cloudShade: '#a09cc4', seaNear: '#1a4096', seaFar: '#c9b4b4' },
+  { el: 15, zenith: '#1440ae', mid: '#3474d2', horizon: '#e6eff0', sunSide: '#fbe9cf', light: '#ffeccb', shade: '#7282c8', glow: '#fff0d0', glowK: 0.22, cloudLit: '#fff8ea', cloudShade: '#b0bddf', seaNear: '#123f9c', seaFar: '#8cb4d8' },
+  { el: 30, zenith: '#0d36a8', mid: '#2a6ad4', horizon: '#d5eff8', sunSide: '#e8f4f4', light: '#fff7e8', shade: '#6d84cf', glow: '#ffffff', glowK: 0.12, cloudLit: '#ffffff', cloudShade: '#abc0e5', seaNear: '#0e3e9e', seaFar: '#4a93d6' },
+  { el: 75, zenith: '#0a2f9e', mid: '#1f5fd0', horizon: '#cfeefb', sunSide: '#e4f5fb', light: '#fffbf1', shade: '#6a82d0', glow: '#ffffff', glowK: 0.1, cloudLit: '#ffffff', cloudShade: '#a9bfe6', seaNear: '#0c3a9a', seaFar: '#3c8ad6' },
 ].map((k) => {
   const o = { el: k.el, glowK: k.glowK };
-  for (const key of ['zenith', 'horizon', 'sunSide', 'light', 'shade', 'glow', 'cloudLit', 'cloudShade', 'seaNear', 'seaFar']) o[key] = hex(k[key]);
+  for (const key of ['zenith', 'mid', 'horizon', 'sunSide', 'light', 'shade', 'glow', 'cloudLit', 'cloudShade', 'seaNear', 'seaFar']) o[key] = hex(k[key]);
   return o;
 });
 
@@ -60,9 +64,9 @@ function sample(el) {
 
 /**
  * Everything the renderer needs to know about one moment of the day.
- * `clouds` comes from makeClouds(); the same list is used all day.
+ * `sky` = { clouds, gulls } from makeSky(); the same sky is used all day.
  */
-export function skyState(hours, clouds = []) {
+export function skyState(hours, sky = {}) {
   const sunDir = sunDirection(hours);
   const moonDir = moonDirection(hours);
   const sunEl = Math.asin(clamp(sunDir[1], -1, 1)) / DEG;
@@ -80,22 +84,25 @@ export function skyState(hours, clouds = []) {
   let key = k.light.map((v, i) => Math.max(0, v - k.shade[i]) * sunUp);
   if (sunEl < -3) {
     keyDir = moonDir;
-    const mk = 0.16 * night * moonUp;
+    const mk = 0.14 * night * moonUp;
     key = [0.5 * mk, 0.58 * mk, 0.9 * mk];
   }
   // Hemisphere: faces that look up see a little more sky, faces that look
   // down get a warmer, dimmer bounce.
-  const amb = k.shade.map((v) => v * 1.05);
-  const ground = [k.shade[0] * 0.88, k.shade[1] * 0.84, k.shade[2] * 0.8];
+  const amb = k.shade.map((v) => v * 1.04);
+  const ground = [k.shade[0] * 0.86, k.shade[1] * 0.82, k.shade[2] * 0.8];
   return {
     hours,
     sunDir,
     sunEl,
+    sunAz: Math.atan2(sunDir[0], -sunDir[2]) / DEG,
     moonDir,
     keyDir,
     key,
     keyOn: key[0] + key[1] + key[2] > 0.01,
+    keyStrength: Math.min(1, (key[0] + key[1] + key[2]) / 1.2),
     zenith: k.zenith,
+    mid: k.mid,
     horizon: k.horizon,
     sunSide,
     glow: k.glow,
@@ -110,48 +117,60 @@ export function skyState(hours, clouds = []) {
     lights: smoothstep(1.5, -3.5, sunEl),
     stars: smoothstep(-5, -13, sunEl),
     moonUp,
-    clouds,
+    clouds: sky.clouds || [],
+    streaks: sky.streaks || [],
+    gulls: sky.gulls || [],
   };
 }
 
-// ------------------------------------------------------------------ clouds
-// Flat-bottomed cumulus that live on the sky dome, described in degrees of
-// azimuth and elevation, so they stay put as the camera turns and show up
-// in every reflection.
+// ------------------------------------------------------------------ the sky's cast
 
-export function makeClouds(rng) {
-  const clouds = [];
-  const n = rng.int(4, 6);
+// Cumulus that live on the sky dome, in degrees of azimuth and elevation,
+// so they stay put as the camera turns and show up in every reflection.
+// Plus a few long streaks low on the horizon, and gulls.
+export function makeSky(rng, { clouds = [4, 6], streaks = [1, 3], gulls = [0, 4] } = {}) {
+  const out = { clouds: [], streaks: [], gulls: [] };
+  const n = rng.int(clouds[0], clouds[1]);
   for (let i = 0; i < n; i++) {
-    const az = (i / n) * 360 + rng.range(-25, 25);
-    const base = rng.range(2.5, 9);
-    const width = rng.range(9, 22);
+    const az = (i / Math.max(1, n)) * 360 + rng.range(-25, 25);
+    const base = rng.range(1.5, 8);
+    const width = rng.range(12, 26);
+    const height = width * rng.range(0.26, 0.42);
     const puffs = [];
-    const m = rng.int(4, 7);
-    for (let j = 0; j < m; j++) {
-      const t = m === 1 ? 0.5 : j / (m - 1);
-      const x = (t - 0.5) * width;
-      const bulge = Math.sin(t * Math.PI);
-      const r = width * rng.range(0.12, 0.2) * (0.6 + 0.6 * bulge);
-      puffs.push({ x, y: r * rng.range(0.25, 0.55) + bulge * width * 0.04, r });
+    // Crown: puffs strung along a domed envelope, bigger toward the middle.
+    const nTop = rng.int(8, 12);
+    for (let j = 0; j < nTop; j++) {
+      const t = j / (nTop - 1);
+      const env = Math.pow(Math.max(0, 1 - (2 * t - 1) ** 2), 0.55);
+      const r = width * (0.06 + 0.075 * env) * rng.range(0.8, 1.2);
+      puffs.push({ x: (t - 0.5) * width * 0.92, y: Math.max(r * 0.35, height * env * rng.range(0.78, 1.02) - r * 0.45), r });
     }
-    // One or two crowning puffs give the silhouette its tower.
-    const crowns = rng.int(1, 2);
-    for (let j = 0; j < crowns; j++) {
-      const r = width * rng.range(0.16, 0.24);
-      puffs.push({ x: rng.range(-0.18, 0.18) * width, y: r * 0.9 + width * 0.08, r });
+    // Body: broad puffs to fill in under the crown, one always at the center.
+    puffs.push({ x: 0, y: width * 0.06, r: width * 0.2 });
+    const nFill = rng.int(3, 5);
+    for (let j = 0; j < nFill; j++) {
+      const r = width * rng.range(0.13, 0.19);
+      puffs.push({ x: rng.range(-0.34, 0.34) * width, y: r * rng.range(0.25, 0.5), r });
     }
-    // Paint order: lower puffs first, so upper ones overlap them.
-    puffs.sort((a, b) => a.y - b.y);
+    puffs.sort((a, b) => a.y - b.y); // paint order: upper puffs overlap lower ones
     let top = 0;
     let half = 0;
     for (const p of puffs) {
       top = Math.max(top, p.y + p.r);
       half = Math.max(half, Math.abs(p.x) + p.r);
     }
-    clouds.push({ az, base, puffs, top, half });
+    out.clouds.push({ az, base, puffs, top, half });
   }
-  return clouds;
+  const s = rng.int(streaks[0], streaks[1]);
+  for (let i = 0; i < s; i++) {
+    out.streaks.push({ az: rng.range(0, 360), el: rng.range(1.2, 5), w: rng.range(14, 40), h: rng.range(0.35, 0.9) });
+  }
+  const g = rng.int(gulls[0], gulls[1]);
+  const gaz = rng.range(0, 360);
+  for (let i = 0; i < g; i++) {
+    out.gulls.push({ az: gaz + rng.range(-9, 9), el: rng.range(9, 20), s: rng.range(0.35, 0.7), a: rng.range(-0.25, 0.25) });
+  }
+  return out;
 }
 
 function wrapDeg(a) {
@@ -161,14 +180,13 @@ function wrapDeg(a) {
   return a;
 }
 
-// Returns 0 when the direction misses every cloud, 1 for the shaded side
-// and 2 for the lit side. Each point takes the last puff (in paint order)
-// that covers it, lit mostly from above and a little from the sun's side,
-// so every puff gets a bright crown and a cool underside.
+// Lit fraction (0..1) of the cloud seen in this direction, or -1 for a miss.
+// Each point takes the last puff (in paint order) that covers it. Shading is
+// airbrushed: a soft roll from a bright crown to a cool, flat underside,
+// with crisp silhouettes.
 function evalClouds(S, az, el) {
   const clouds = S.clouds;
-  if (!clouds.length || el < 0 || el > 45) return 0;
-  const sunAz = Math.atan2(S.sunDir[0], -S.sunDir[2]) / DEG;
+  if (!clouds.length || el < 0 || el > 50) return -1;
   const cosEl = Math.cos(el * DEG);
   for (let c = 0; c < clouds.length; c++) {
     const cl = clouds[c];
@@ -190,20 +208,24 @@ function evalClouds(S, az, el) {
       }
     }
     if (hit < 0) continue;
-    const side = clamp(wrapDeg(sunAz - cl.az) / 60, -1, 1) * 0.55;
-    const ll = Math.hypot(side, 1);
-    const facing = (bx * side + by) / ll;
-    const underside = del < cl.top * 0.14;
-    return !underside && facing > -0.05 ? 2 : 1;
+    // One airbrushed form: mostly a gradient up through the whole cloud,
+    // a little modeling from each puff, a lean toward the sun's side, and
+    // a flat underside that stays in shade.
+    const side = clamp(wrapDeg(S.sunAz - cl.az) / 60, -1, 1) * 0.55;
+    const facing = (bx * side + by) / Math.hypot(side, 1);
+    const vert = del / cl.top;
+    let lit = 0.68 * smoothstep(0.04, 0.92, vert) + 0.32 * smoothstep(-0.5, 0.8, facing) + 0.12 * side * (da / cl.half);
+    lit *= smoothstep(0, 0.2, vert);
+    return clamp(lit, 0, 1);
   }
-  return 0;
+  return -1;
 }
 
 // ------------------------------------------------------------------ sky
 
 /**
  * Color of the sky in direction (dx, dy, dz), written to out[0..2].
- * disc: draw sun and moon discs (off for blurry reflections).
+ * disc: draw sun, moon and gulls (off for soft reflections).
  */
 export function skyColor(S, dx, dy, dz, out, disc = true) {
   const e = dy > 0 ? dy : 0;
@@ -215,95 +237,142 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
   const cosAz = (dx * sx + dz * sz) / (hl * sl);
   const side = Math.pow((cosAz + 1) * 0.5, 2.4);
   const Z = S.zenith;
+  const M = S.mid;
   const Hn = S.horizon;
   const Hs = S.sunSide;
   const hr = Hn[0] + (Hs[0] - Hn[0]) * side;
   const hg = Hn[1] + (Hs[1] - Hn[1]) * side;
   const hb = Hn[2] + (Hs[2] - Hn[2]) * side;
-  const g = Math.pow(e, 0.5);
-  let r = hr + (Z[0] - hr) * g;
-  let gg = hg + (Z[1] - hg) * g;
-  let b = hb + (Z[2] - hb) * g;
-  const cosA = dx * sx + dy * sy + dz * sz;
+  // White mist from the horizon, blue layered over it, deepest overhead.
+  const blue = 1 - Math.exp(-e / 0.15);
+  let r = hr + (M[0] - hr) * blue;
+  let g = hg + (M[1] - hg) * blue;
+  let b = hb + (M[2] - hb) * blue;
+  const deep = Math.pow(smoothstep(0.16, 0.95, e), 0.85);
+  r += (Z[0] - r) * deep;
+  g += (Z[1] - g) * deep;
+  b += (Z[2] - b) * deep;
+  // Sprayed by hand, not computed: a faint, slow unevenness over the dome.
+  const n = valueNoise(dx * 2.3 + e * 1.3 + 7.1, dz * 2.3 - e * 2.1) + 0.5 * valueNoise(dx * 5.7 - 3.3, dz * 5.7 + e * 4.4) - 0.75;
+  const uneven = 1 + n * 0.04 * (0.35 + blue);
+  r *= uneven;
+  g *= uneven;
+  b *= uneven;
+  // Clamped: a slightly long direction must never make the halo explode.
+  const cosA = Math.min(1, dx * sx + dy * sy + dz * sz);
   if (S.glowK > 0 && cosA > 0) {
-    const k = S.glowK * Math.pow(cosA, 10) * (1 - 0.75 * g);
+    const k = S.glowK * (Math.pow(cosA, 8) * (1 - 0.7 * blue) + 0.5 * Math.pow(cosA, 400));
     r += (S.glow[0] - r) * k;
-    gg += (S.glow[1] - gg) * k;
+    g += (S.glow[1] - g) * k;
     b += (S.glow[2] - b) * k;
   }
+  // Long low streaks, sprayed thin.
+  const az = Math.atan2(dx, -dz) / DEG;
+  const el = Math.asin(e) / DEG;
+  for (let i = 0; i < S.streaks.length; i++) {
+    const st = S.streaks[i];
+    const u = wrapDeg(az - st.az) / st.w;
+    const v = (el - st.el) / st.h;
+    const q = u * u + v * v;
+    if (q < 1) {
+      const a = 0.55 * smoothstep(1, 0.25, q);
+      const L = S.cloudLit;
+      r += (L[0] * 0.8 + hr * 0.2 - r) * a;
+      g += (L[1] * 0.8 + hg * 0.2 - g) * a;
+      b += (L[2] * 0.8 + hb * 0.2 - b) * a;
+    }
+  }
   if (S.stars > 0 && e > 0.03) {
-    const az = Math.atan2(dx, -dz) / DEG;
-    const el = Math.asin(e) / DEG;
     const cell = 1.1;
-    const u = (az * Math.cos(el * DEG)) / cell;
-    const v = el / cell;
-    const cu = Math.floor(u);
-    const cv = Math.floor(v);
+    const cu = Math.floor((az * Math.cos(el * DEG)) / cell);
+    const cv = Math.floor(el / cell);
     const h = hash2(cu, cv);
     if (h > 0.74) {
       const ox = 0.2 + 0.6 * hash2(cu + 71, cv - 13);
       const oy = 0.2 + 0.6 * hash2(cu - 29, cv + 47);
-      const d = Math.hypot(u - cu - ox, v - cv - oy) * cell;
+      const d = Math.hypot((az * Math.cos(el * DEG)) / cell - cu - ox, el / cell - cv - oy) * cell;
       const rad = 0.035 + 0.05 * hash2(cu + 5, cv + 9);
       if (d < rad) {
         const k = S.stars * smoothstep(0.03, 0.2, e) * (0.55 + 0.45 * h);
         r += (0.95 - r) * k;
-        gg += (0.93 - gg) * k;
+        g += (0.93 - g) * k;
         b += (0.85 - b) * k;
       }
     }
   }
-  const hit = evalClouds(S, Math.atan2(dx, -dz) / DEG, Math.asin(e) / DEG);
-  if (hit) {
-    const C = hit === 2 ? S.cloudLit : S.cloudShade;
-    r = C[0];
-    gg = C[1];
-    b = C[2];
+  const lit = evalClouds(S, az, el);
+  if (lit >= 0) {
+    const L = S.cloudLit;
+    const D = S.cloudShade;
+    r = D[0] + (L[0] - D[0]) * lit;
+    g = D[1] + (L[1] - D[1]) * lit;
+    b = D[2] + (L[2] - D[2]) * lit;
   } else if (disc) {
-    if (S.sunEl > -1.5 && cosA > 0.9994) {
-      // A stylized sun, larger than life, warmer as it sinks.
-      const k = smoothstep(0.9994, 0.99965, cosA);
+    if (S.sunEl > -1.5 && cosA > 0.99935) {
+      // A stylized sun, larger than life, warmer as it sinks. Its edge is
+      // masked crisp; the halo around it is sprayed.
+      const k = smoothstep(0.99935, 0.99943, cosA);
       const warm = smoothstep(12, 0, S.sunEl);
-      r += (1.0 - r) * k;
-      gg += (lerp(0.97, 0.78, warm) - gg) * k;
-      b += (lerp(0.86, 0.5, warm) - b) * k;
+      r += (1.3 - r) * k;
+      g += (lerp(1.2, 0.86, warm) - g) * k;
+      b += (lerp(1.0, 0.52, warm) - b) * k;
     }
     const m = S.moonDir;
     const cm = dx * m[0] + dy * m[1] + dz * m[2];
     if (S.night > 0.2 && cm > 0.99985) {
-      const k = smoothstep(0.99985, 0.99992, cm) * S.moonUp * S.night;
-      r += (0.96 - r) * k;
-      gg += (0.94 - gg) * k;
-      b += (0.84 - b) * k;
+      const k = smoothstep(0.99985, 0.99989, cm) * S.moonUp * S.night;
+      r += (1.05 - r) * k;
+      g += (1.02 - g) * k;
+      b += (0.9 - b) * k;
     } else if (S.night > 0.2 && cm > 0.998) {
       const k = 0.18 * S.night * S.moonUp * Math.pow((cm - 0.998) / 0.002, 3);
       r += (0.6 - r) * k;
-      gg += (0.62 - gg) * k;
+      g += (0.62 - g) * k;
       b += (0.8 - b) * k;
+    }
+    // Gulls: a few flat "m" strokes.
+    for (let i = 0; i < S.gulls.length; i++) {
+      const gl = S.gulls[i];
+      let x = wrapDeg(az - gl.az) * Math.cos(el * DEG);
+      let y = el - gl.el;
+      if (x < -gl.s * 1.2 || x > gl.s * 1.2 || y < -gl.s || y > gl.s) continue;
+      const c = Math.cos(gl.a);
+      const sn = Math.sin(gl.a);
+      const u = x * c + y * sn;
+      const v = -x * sn + y * c;
+      const t = Math.abs(u) / gl.s;
+      if (t > 1) continue;
+      const curve = gl.s * (0.34 * t - 0.16 * Math.sin(Math.PI * t));
+      if (Math.abs(v - curve) < gl.s * 0.07 * (1.1 - 0.7 * t)) {
+        const k = 0.75 * (1 - S.night);
+        r += (0.2 - r) * k;
+        g += (0.26 - g) * k;
+        b += (0.4 - b) * k;
+      }
     }
   }
   if (dy < 0) {
     // Below the horizon but nothing was hit: a hazy band.
     r = hr * 0.92;
-    gg = hg * 0.92;
+    g = hg * 0.92;
     b = hb * 0.95;
   }
   out[0] = r;
-  out[1] = gg;
+  out[1] = g;
   out[2] = b;
 }
 
-// Color of the sea where a downward ray meets it.
+// Color of the sea where a downward ray meets it at height `level`.
 const tmp = new Float64Array(3);
-export function seaColor(S, ox, oy, oz, dx, dy, dz, out, pixelAngle = 0.0006) {
-  const t = (SEA_LEVEL - oy) / dy;
+export function seaColor(S, level, ox, oy, oz, dx, dy, dz, out, pixelAngle = 0.0006) {
+  const t = (level - oy) / dy;
   const x = ox + dx * t;
   const z = oz + dz * t;
   const k = 1 - Math.exp(-t / 900);
   let r = lerp(S.seaNear[0], S.seaFar[0], k);
   let g = lerp(S.seaNear[1], S.seaFar[1], k);
   let b = lerp(S.seaNear[2], S.seaFar[2], k);
-  // Long swell lines parallel to the shore, thinning into the distance.
+  // Long swell strokes, thinning into the distance.
   const footprint = (t * pixelAngle) / Math.max(0.02, -dy);
   const spacing = 9;
   const fade = 1 - smoothstep(spacing * 0.06, spacing * 0.3, footprint);
@@ -320,25 +389,27 @@ export function seaColor(S, ox, oy, oz, dx, dy, dz, out, pixelAngle = 0.0006) {
   // Glitter path under a low sun: broken horizontal dashes.
   const sd = S.sunDir;
   if (S.keyOn && sd[1] > -0.02 && sd[1] < 0.5) {
-    const rx = dx;
-    const ry = -dy;
-    const rz = dz;
-    const c = rx * sd[0] + ry * sd[1] + rz * sd[2];
+    const c = dx * sd[0] - dy * sd[1] + dz * sd[2];
     const spread = 0.965 + 0.03 * smoothstep(0, 0.5, sd[1]);
     if (c > spread) {
-      const n = valueNoise(x * 0.09, z * 0.9 + x * 0.02);
-      const dash = smoothstep(0.52, 0.62, n);
-      const k = dash * smoothstep(spread, 0.999, c) * (1 - smoothstep(0.25, 0.5, sd[1]));
+      const nse = valueNoise(x * 0.09, z * 0.9 + x * 0.02);
+      const dash = smoothstep(0.52, 0.62, nse);
+      const kk = dash * smoothstep(spread, 0.999, c) * (1 - smoothstep(0.25, 0.5, sd[1]));
       const warm = smoothstep(15, 0, S.sunEl);
-      r += (1.0 - r) * k;
-      g += (lerp(0.96, 0.8, warm) - g) * k;
-      b += (lerp(0.86, 0.55, warm) - b) * k;
+      r += (1.05 - r) * kk;
+      g += (lerp(1.0, 0.82, warm) - g) * kk;
+      b += (lerp(0.9, 0.56, warm) - b) * kk;
     }
   }
-  // Haze into the horizon color seen in this direction.
+  // Haze into the horizon color seen in this direction, and the thin bright
+  // line a painter leaves where sea meets sky.
   skyColor(S, dx, 0.0001, dz, tmp, false);
   const haze = 1 - Math.exp(-t / 4200);
-  out[0] = r + (tmp[0] - r) * haze;
-  out[1] = g + (tmp[1] - g) * haze;
-  out[2] = b + (tmp[2] - b) * haze;
+  r += (tmp[0] - r) * haze;
+  g += (tmp[1] - g) * haze;
+  b += (tmp[2] - b) * haze;
+  const line = 1 - smoothstep(0.0006, 0.0035, -dy);
+  out[0] = r + (tmp[0] * 1.08 - r) * line * 0.6;
+  out[1] = g + (tmp[1] * 1.08 - g) * line * 0.6;
+  out[2] = b + (tmp[2] * 1.05 - b) * line * 0.6;
 }

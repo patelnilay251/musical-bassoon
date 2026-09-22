@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Someone Was Just Here</title>
+<title>{{TITLE}}</title>
 <style>
   :root {
     --paper: #f3eee3;
@@ -127,6 +127,11 @@
   .colophon dd {
     margin: 0;
   }
+  .colophon a {
+    color: inherit;
+    text-decoration-color: var(--accent);
+    text-underline-offset: 3px;
+  }
   @media (max-width: 860px) {
     .spread,
     .spread.flip {
@@ -152,13 +157,13 @@
 <section class="page colophon">
   <div class="inner">
     <h2>About these pictures</h2>
-    <p>Every image in this book was drawn by Vacant Sunlight, a software renderer written from scratch for this project in plain JavaScript. It uses no libraries, textures, photographs or 3D models. Seed {{SEED}} grows the house, the pool and the palms from a handful of rules, which is why every page shows exactly the same place. The sun follows its real path over 34°&nbsp;north in late July. Shadows are traced exactly through a bounding volume hierarchy, the pool is refracted and reflected, and every pixel is the average of nine samples.</p>
-    <p>The style is a homage to the flat, sunlit poolside paintings of Hiroshi Nagai, made without borrowing any of his images.</p>
+    <p>Every picture here was painted by Vacant Sunlight, a software renderer written from scratch for this project in plain JavaScript: no libraries, no textures, no photographs, no models. Paloma Bay itself (a motel on the coast highway, a boulevard that points at the midsummer sunset, a beach with a pier, a house on the point, a marina) is grown from rules and fixed seeds, so every postcard shows the same town. The sun follows its real path over 34&deg;&nbsp;north in late July. Shadows are traced exactly, water holds the world upside down, and the light is painted, not simulated: three values to a wall, airbrushed skies, a little grain.</p>
+    <p>The visitor keeps a schedule, and the <a href="index.html">town on the site</a> keeps the same one: open it at a given hour and the yellow car will be wherever this book says it is.</p>
+    <p>The style is a homage to the sunlit, deserted resort paintings of Hiroshi Nagai, made without borrowing any of his images.</p>
     <dl>
-      <dt>Seed</dt><dd>{{SEED}}</dd>
-      <dt>Pages</dt><dd>{{W}} × {{H}}, {{SAMPLES}} samples per pixel</dd>
-      <dt>Geometry</dt><dd>about {{TRIS}} triangles per page</dd>
-      <dt>Rendering</dt><dd>{{SECONDS}} s per page on one CPU core, on average</dd>
+      <dt>Pages</dt><dd>{{W}} &times; {{H}}, {{SAMPLES}} samples per pixel</dd>
+      <dt>Geometry</dt><dd>about {{TRIS}} triangles per picture</dd>
+      <dt>Painting</dt><dd>about {{SECONDS}} s per picture on one CPU core</dd>
     </dl>
   </div>
 </section>
