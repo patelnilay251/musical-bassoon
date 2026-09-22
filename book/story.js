@@ -1,96 +1,93 @@
-// "Someone Was Just Here": one summer day at one house, eight pictures.
-// Nobody appears. The story is carried by what moves between pages: a
-// towel and a book arrive and go, the umbrella opens and closes, the float
-// drifts from the deep end to the shallow end, and the car leaves.
-//
-// Cameras are functions of the layout so the shots follow the house.
+// "Wish You Were Here": ten postcards from one summer day in Paloma Bay.
+// Nobody appears in them. The visitor is a yellow convertible and the
+// things it leaves behind, on the schedule in src/visitor.js, the same one
+// the site keeps, so the book and the town always agree.
 
-export const SEED = 1981;
+import { propsAt } from '../src/visitor.js';
 
-export const TITLE = 'Someone Was Just Here';
-export const SUBTITLE = 'One summer day at a house by the sea, in eight pictures, drawn by an engine that has never seen a person.';
+export { clock } from '../src/visitor.js';
 
-const pcz = (p) => (p.z0 + p.z1) / 2;
+export const TITLE = 'Wish You Were Here';
+export const SUBTITLE = 'Ten postcards from one summer day in Paloma Bay, sent by someone who never appears in any of them.';
 
-export const COVER = {
-  alt: 'Golden hour at water level: a red-and-white float, a chrome ladder, palms, and the villa with its white fins and striped loungers.',
-  hours: 17.35,
-  props: { towel: true, book: true, glass: true, umbrella: 'open', car: true, float: 0.62 },
-  camera: ({ pool: p, deck: d }) => ({ eye: [p.x0 + 0.4, d.y + 0.6, p.z1 - 0.2], target: [p.x1 + 6, 3.2, p.z0 - 2.5], fovY: 56 }),
-};
+const card = (place, view, hours, alt, text = '') => ({ place, view, hours, props: propsAt(place, hours), alt, text });
+
+export const COVER = card(
+  'beach',
+  'sunset',
+  18.72,
+  'Sunset on the beach: a lifeguard tower in silhouette, the pier walking out to a low sun, long shadows on pink sand.',
+);
 
 export const PAGES = [
-  {
-    hours: 6.83,
-    props: { towel: false, book: false, glass: false, umbrella: 'closed', car: true, float: 0.0 },
-    camera: ({ pool: p }) => ({ eye: [p.x0 - 3.2, 1.45, pcz(p) + 3.2], target: [3, 3.1, pcz(p) - 3.5], fovY: 50 }),
-    alt: 'Early morning. A still turquoise pool in front of a white two-story villa, backlit by a pale sky.',
-    text: 'Ten to seven. The pool has not been touched yet, and neither has the day. The house is still deciding what color to be.',
-  },
-  {
-    hours: 9.0,
-    props: { towel: false, book: false, glass: false, umbrella: 'closed', car: true, float: 0.08 },
-    camera: ({ car }) => ({ eye: [car.x + 8.5, 1.45, car.z + 6.2], target: [car.x - 3, 1.7, car.z - 1.5], fovY: 44 }),
-    alt: 'A yellow convertible parked in front of a white wall striped with palm shadows, a globe lamp beside the drive.',
-    text: 'Out front, the car sits with its top down, nose to the door, the way you leave a car when you mean to come right back.',
-  },
-  {
-    hours: 11.4,
-    props: { towel: true, book: true, glass: false, umbrella: 'closed', car: true, float: 0.18 },
-    camera: ({ loungers: l }) => ({
-      eye: [l.hx - 3.6, 1.95, l.zs[0] - 2.1],
-      target: [l.hx - 1.1, 0.3, l.zs[1] + 0.2],
-      fovY: 46,
-    }),
-    alt: 'Three blue-and-white striped loungers in hard midday light; a red striped towel lies folded on the middle one.',
-    text: 'Someone has been down to the pool. A towel, folded twice. A book, left face-down to keep the page.',
-  },
-  {
-    hours: 13.0,
-    props: { towel: true, book: true, glass: true, umbrella: 'open', car: true, float: 0.36 },
-    camera: ({ pool: p, deck: d }) => ({ eye: [p.x0 - 0.7, d.y + 0.45, p.z0 - 0.9], target: [p.x1, 5.5, p.z1], fovY: 62 }),
-    alt: 'Seen from the water line: the villa in cool shade, an open umbrella, two palms against a deep blue sky.',
-    text: 'By one o\'clock the umbrella is open and the shadows have crawled under things to stay cool. Nobody is steering the float.',
-  },
-  {
-    hours: 15.2,
-    props: { towel: true, book: true, glass: true, umbrella: 'open', car: true, float: 0.55 },
-    camera: ({ villa: V, pool: p }) => ({
-      eye: [V.ux0 - 0.4, V.U1 + 1.9, pcz(p) + 1.5],
-      target: [p.x0 - 9, -1, pcz(p) - 2.5],
-      fovY: 55,
-    }),
-    alt: 'Looking down from the roof: the pool with its float and diving board, the lawn, a white sea wall and the sea.',
-    text: 'From the roof, the afternoon looks drawn with a ruler: one line for the pool, one for the wall, one for the sea.',
-  },
-  {
-    hours: 18.25,
-    props: { towel: false, book: false, glass: true, umbrella: 'closed', car: true, float: 0.78 },
-    camera: ({ pool: p, bounds: b }) => ({ eye: [p.x1 + 1.3, 1.65, pcz(p) + 3], target: [b.x0 - 30, 1.4, pcz(p) - 3], fovY: 54 }),
-    alt: 'Sunset across the pool: palms in silhouette, a low sun over the sea, the float drifting in the foreground.',
-    text: 'The towel is gone, and the book. Someone careful has closed the umbrella. Then the sun comes down to the water to see what everyone was looking at.',
-  },
-  {
-    hours: 19.75,
-    props: { towel: false, book: false, glass: true, umbrella: 'closed', car: true, float: 1.0 },
-    camera: ({ pool: p }) => ({ eye: [p.x0 - 3.5, 1.55, p.z1 + 4.5], target: [2, 3.4, p.z0 + 1], fovY: 52 }),
-    alt: 'Dusk: the pool glows turquoise, the windows glow amber, stars come out over the villa.',
-    text: 'At dusk the pool lights come on for whoever might still want a swim. The float has finally made it to the shallow end.',
-  },
-  {
-    hours: 21.75,
-    props: { towel: false, book: false, glass: true, umbrella: 'closed', car: false, float: 1.0 },
-    camera: ({ car }) => ({ eye: [car.x + 9, 1.5, car.z + 6.5], target: [car.x - 2, 1.9, car.z - 1], fovY: 46 }),
-    alt: 'Night: the empty drive, a lit globe lamp, moonlit palm shadows on the white wall.',
-    text: 'Nobody is in any of these pictures. But the towel is gone, and the book, and now the car. Someone was just here.',
-  },
+  card(
+    'motel',
+    'front',
+    4.85,
+    'Before dawn at a two-story motel: a pink MOTEL sign and a red NO VACANCY still burning, the sky paling behind the building.',
+    'Ten to five. All night the sign has been telling an empty highway MOTEL, and since midnight NO VACANCY. Behind the building the sky is getting ready. One of the cars in the lot is yellow.',
+  ),
+  card(
+    'boulevard',
+    'diner',
+    8.3,
+    'A white streamline diner with red speed stripes and DINER on the roof; a yellow convertible at the curb outside.',
+    'Breakfast is at the diner on the corner. The yellow car waits at the curb, pointed at the sea, the way you park when you already know where you are going next.',
+  ),
+  card(
+    'house',
+    'front',
+    9.8,
+    'A yellow convertible parked at the door of a white house, palm shadows falling across the wall.',
+    'Mid-morning the car goes out to the house on the point and parks with its nose to the door. The palms print their shadows on the wall. The house has been waiting, the way houses by the sea do.',
+  ),
+  card(
+    'house',
+    'pool',
+    11.6,
+    'A white villa behind a turquoise pool, a red-and-white float, striped loungers under an open umbrella.',
+    'Somebody has been at the pool: a towel on the middle lounger, a book face down to keep the place, a glass on the little table. The float is taking its time about the shallow end.',
+  ),
+  card(
+    'beach',
+    'tower',
+    14.2,
+    'A pale blue lifeguard tower on stilts, a rack of surfboards with one missing, a striped towel and a red umbrella on the sand.',
+    'By two there is a towel on the sand, an umbrella shading nobody, and a gap in the rack where the blue board was.',
+  ),
+  card(
+    'beach',
+    'pier',
+    16.2,
+    'The beach seen from the pier: pastel beach houses, palms along the promenade, a few umbrellas, the lifeguard tower, the sea in the foreground.',
+    'From halfway down the pier the beach looks barely started, like a page with one word on it. The blue board is back, lying on the sand next to the towel.',
+  ),
+  card(
+    'marina',
+    'harbor',
+    18.1,
+    'A marina seen from above: rows of sailboats and motor yachts in their slips, a breakwater, a red and white lighthouse, the open sea.',
+    'At six the marina is full of boats going nowhere. One slip in the middle is empty. The red sloop has gone out past the lighthouse.',
+  ),
+  card(
+    'boulevard',
+    'sunset',
+    18.8,
+    'The sun going down exactly at the far end of the boulevard, between two long rows of palms.',
+    'Twice a year the sun goes down exactly at the bottom of the boulevard. This is one of those evenings, and every palm on both sides of the street has lined up to watch.',
+  ),
+  card(
+    'marina',
+    'lighthouse',
+    19.45,
+    'Dusk on the breakwater: the lighthouse lit, its lamp burning over the water.',
+    'The lighthouse comes on at dusk whether or not anyone is out there. This evening somebody was, and came in with the last of the light.',
+  ),
+  card(
+    'motel',
+    'front',
+    22.0,
+    'Night at the motel: the pink neon sign, NO VACANCY in red, lit windows, a yellow convertible back in the lot.',
+    'The yellow car is back outside its door, and the sign has had second thoughts: NO VACANCY. Wish you were here.',
+  ),
 ];
-
-export function clock(h) {
-  const hh = Math.floor(h);
-  const mm = Math.round((h - hh) * 60);
-  const H24 = (mm === 60 ? hh + 1 : hh) % 24;
-  const m = mm === 60 ? 0 : mm;
-  const h12 = H24 % 12 === 0 ? 12 : H24 % 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${H24 < 12 ? 'a.m.' : 'p.m.'}`;
-}

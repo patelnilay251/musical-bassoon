@@ -1,8 +1,8 @@
 {
   "name": "musical-bassoon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Vacant Sunlight: a from-scratch software 3D engine that renders a procedurally generated resort as flat, sunlit 1980s-style illustrations.",
+  "description": "Paloma Bay: a seaside town painted by a from-scratch software renderer, in homage to Hiroshi Nagai. An immersive site and a book of postcards.",
   "type": "module",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
