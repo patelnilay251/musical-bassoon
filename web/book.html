@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Someone Was Just Here</title>
+<style>
+  :root {
+    --paper: #f3eee3;
+    --ink: #1d2230;
+    --muted: #8b8577;
+    --accent: #d4583f;
+  }
+  html {
+    background: var(--paper);
+    scroll-snap-type: y proximity;
+  }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    min-height: 100vh;
+    box-sizing: border-box;
+    padding: 7vh 6vw;
+    display: grid;
+    place-items: center;
+    scroll-snap-align: start;
+  }
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .cover .inner {
+    max-width: min(1100px, 88vw);
+  }
+  .cover .frame {
+    background: #fff;
+    padding: 14px;
+    box-shadow: 0 30px 60px rgba(29, 34, 48, 0.18);
+  }
+  .cover h1 {
+    font-weight: 400;
+    font-style: italic;
+    font-size: clamp(34px, 5.2vw, 68px);
+    letter-spacing: -0.01em;
+    margin: 34px 0 10px;
+  }
+  .cover .sub {
+    color: var(--muted);
+    font-size: clamp(16px, 1.4vw, 19px);
+    line-height: 1.55;
+    max-width: 34em;
+    margin: 0;
+  }
+  .cover .scroll {
+    margin-top: 26px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .spread {
+    width: 100%;
+    max-width: 1440px;
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(250px, 1.1fr);
+    gap: 5vw;
+    align-items: center;
+  }
+  .spread.flip {
+    grid-template-columns: minmax(250px, 1.1fr) minmax(0, 3fr);
+  }
+  .spread.flip .picture {
+    order: 2;
+  }
+  .picture img {
+    box-shadow: 0 24px 50px rgba(29, 34, 48, 0.16);
+  }
+  .time {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 20px;
+  }
+  .words p {
+    font-size: clamp(19px, 1.7vw, 24px);
+    line-height: 1.55;
+    margin: 0;
+  }
+  .folio {
+    margin-top: 30px;
+    color: var(--muted);
+    font-size: 14px;
+    font-variant-numeric: oldstyle-nums;
+  }
+  .colophon .inner {
+    max-width: 40em;
+    font-size: 17px;
+    line-height: 1.65;
+    color: #3a3e4b;
+  }
+  .colophon h2 {
+    font-weight: 400;
+    font-style: italic;
+    font-size: 30px;
+    color: var(--ink);
+    margin: 0 0 18px;
+  }
+  .colophon dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 22px;
+    margin: 26px 0 0;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+  }
+  .colophon dt {
+    color: var(--muted);
+  }
+  .colophon dd {
+    margin: 0;
+  }
+  @media (max-width: 860px) {
+    .spread,
+    .spread.flip {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+    .spread.flip .picture {
+      order: 0;
+    }
+  }
+</style>
+</head>
+<body>
+<section class="page cover">
+  <div class="inner">
+    <div class="frame"><img src="{{COVER}}" alt="{{COVER_ALT}}"></div>
+    <h1>{{TITLE}}</h1>
+    <p class="sub">{{SUBTITLE}}</p>
+    <div class="scroll">Scroll to begin</div>
+  </div>
+</section>
+{{PAGES}}
+<section class="page colophon">
+  <div class="inner">
+    <h2>About these pictures</h2>
+    <p>Every image in this book was drawn by Vacant Sunlight, a software renderer written from scratch for this project in plain JavaScript. It uses no libraries, textures, photographs or 3D models. Seed {{SEED}} grows the house, the pool and the palms from a handful of rules, which is why every page shows exactly the same place. The sun follows its real path over 34°&nbsp;north in late July. Shadows are traced exactly through a bounding volume hierarchy, the pool is refracted and reflected, and every pixel is the average of nine samples.</p>
+    <p>The style is a homage to the flat, sunlit poolside paintings of Hiroshi Nagai, made without borrowing any of his images.</p>
+    <dl>
+      <dt>Seed</dt><dd>{{SEED}}</dd>
+      <dt>Pages</dt><dd>{{W}} × {{H}}, {{SAMPLES}} samples per pixel</dd>
+      <dt>Geometry</dt><dd>about {{TRIS}} triangles per page</dd>
+      <dt>Rendering</dt><dd>{{SECONDS}} s per page on one CPU core, on average</dd>
+    </dl>
+  </div>
+</section>
+</body>
+</html>
