@@ -367,8 +367,9 @@ function lettering(sh, s) {
   const out = [];
   if (sh.title) {
     const a = smooth(1.6, 3.2, s) * (1 - smooth(7.4, 9.0, s));
-    out.push({ text: 'ONE DAY IN', x: 0.5, y: 0.34, cap: 0.022, align: 'center', alpha: a, tracking: 0.9 });
-    out.push({ text: 'PALOMA BAY', x: 0.5, y: 0.43, cap: 0.052, align: 'center', alpha: a, tracking: 0.55 });
+    // In the sky left of the pylon, as the closing line is.
+    out.push({ text: 'ONE DAY IN', x: 0.36, y: 0.34, cap: 0.022, align: 'center', alpha: a, tracking: 0.9 });
+    out.push({ text: 'PALOMA BAY', x: 0.36, y: 0.43, cap: 0.052, align: 'center', alpha: a, tracking: 0.55 });
   }
   if (sh.caption) {
     const a = smooth(sh.sc, sh.sc + 0.7, s) * (1 - smooth(sh.sc + 3.4, sh.sc + 4.2, s));
