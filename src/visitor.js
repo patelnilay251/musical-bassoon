@@ -5,8 +5,8 @@
 import { clamp } from './math.js';
 
 export const DAY = [
-  { place: 'motel', to: 7.6 },
-  { place: 'boulevard', to: 9.2 }, // breakfast at the diner
+  { place: 'motel', to: 8.2 },
+  { place: 'boulevard', to: 9.2 }, // breakfast at the diner, from a quarter past eight
   { place: 'house', to: 12.6 }, // a morning at the house on the point
   { place: 'beach', to: 17.2 },
   { place: 'marina', to: 19.7 }, // out on the red sloop, back by dusk

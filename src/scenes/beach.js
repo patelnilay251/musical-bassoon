@@ -136,7 +136,7 @@ export function build(props = {}) {
     b.translate(WALL + 15, PROM, z + r.range(-0.1, 0.1));
     b.rotateY(Math.PI + r.range(-0.03, 0.03));
     if (visitor) addCar(b, M, { paint: M.visitor });
-    else parkedCar(b, M, r);
+    else parkedCar(b, M, r, { lod: 0.3 });
     b.pop();
   }
 

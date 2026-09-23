@@ -179,7 +179,7 @@ export function build(props = {}) {
       b.rotateY((s < 0 ? Math.PI : 0) + r.range(-0.02, 0.02));
       b.rotateZ((s < 0 ? -1 : 1) * Math.atan(GRADE));
       if (visitor) addCar(b, M, { paint: M.visitor });
-      else parkedCar(b, M, r);
+      else parkedCar(b, M, r, { lod: x > -20 && x < 95 ? 1 : 0.3 });
       b.pop();
       cars.push({ x, s, visitor });
     }

@@ -156,5 +156,9 @@ export function makeMaterials(rng) {
   add('scenery', { kind: 'distant', color: '#8f95c4' });
   add('headland', { kind: 'distant', color: '#8a86b6' });
   add('sail', { color: '#fbf8f0' });
+  add('leatherPleat', { color: '#efe2c8', color2: '#e3d2b2', pattern: 'stripes', scale: 0.5 });
+  add('canvasTop', { color: '#f2ead8' });
+  add('whitewall', { color: '#f4f1e8' });
+  add('plate', { color: '#2a4a8c' });
   return { list, M, accent, car };
 }
