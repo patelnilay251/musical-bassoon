@@ -13,7 +13,8 @@
 //   ending     the last cadence; then the hook on a music box, unresolved,
 //              the way an attract mode starts over
 //
-// This file is only notes: events for film/sound.js to play.
+// This file is only notes: events for sound.js to play. The day film's
+// ballad (film/day/music.js) borrows its chords and tunes.
 
 import { BAR } from './score.js';
 
@@ -21,7 +22,7 @@ const B = BAR / 4; // one beat
 const at = (bar, beat = 0) => bar * BAR + beat * B;
 
 // Chords: the root for the bass, and a rootless voicing for the keys.
-const CH = {
+export const CH = {
   Dmaj9: { root: 38, v: [57, 61, 64, 66] },
   Gmaj9: { root: 43, v: [59, 62, 66, 69] },
   A13: { root: 45, v: [61, 66, 67, 71] },
@@ -55,32 +56,32 @@ const CHART = [
 export const chordAt = (bar, beat = 0) => CH[CHART[bar][beat >= 2 && CHART[bar][1] ? 1 : 0]];
 
 // Note names, for writing melodies down.
-const N = {};
+export const N = {};
 ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].forEach((n, i) => {
   for (let o = 2; o <= 7; o++) N[n + o] = 12 * (o + 1) + i;
 });
 const mel = (bar, notes, shift = 0) => notes.map(([beat, dur, n]) => ({ t: at(bar, beat), dur: dur * B, midi: N[n] + shift }));
 
 // The hook: four bars over the royal road.
-const HOOK = [
+export const HOOK = [
   [[0.5, 0.5, 'D5'], [1, 0.5, 'E5'], [1.5, 1, 'F#5'], [2.5, 0.5, 'E5'], [3, 0.5, 'D5'], [3.5, 1, 'A5']],
   [[0.5, 0.5, 'G5'], [1, 0.5, 'F#5'], [1.5, 1, 'E5'], [2.5, 0.5, 'C#5'], [3, 0.5, 'E5'], [3.5, 1, 'F#5']],
   [[0.5, 0.5, 'E5'], [1, 0.5, 'F#5'], [1.5, 1.5, 'A5'], [3, 0.5, 'F#5'], [3.5, 0.5, 'E5']],
   [[0, 1, 'D5'], [1, 0.5, 'E5'], [1.5, 0.5, 'F#5'], [2, 1, 'D5'], [3, 1, 'B4']],
 ];
-const VERSE = [
+export const VERSE = [
   [[0, 0.5, 'B4'], [0.5, 0.5, 'D5'], [1, 0.5, 'F#5'], [1.5, 0.5, 'E5'], [2, 0.75, 'D5'], [2.75, 0.25, 'B4'], [3, 1, 'D5']],
   [[0, 0.5, 'C#5'], [0.5, 0.5, 'E5'], [1, 0.75, 'A5'], [1.75, 0.25, 'F#5'], [2, 1, 'E5'], [3, 0.5, 'C#5'], [3.5, 0.5, 'A4']],
   [[0, 0.5, 'B4'], [0.5, 0.5, 'D5'], [1, 0.75, 'G5'], [1.75, 0.25, 'F#5'], [2, 0.5, 'E5'], [2.5, 0.5, 'D5'], [3, 1, 'B4']],
   [[0, 0.5, 'A4'], [0.5, 0.5, 'B4'], [1, 1, 'D5'], [2, 1, 'C#5'], [3, 0.5, 'E5'], [3.5, 0.5, 'G5']],
 ];
-const VERSE2 = [
+export const VERSE2 = [
   [[0, 0.5, 'D5'], [0.5, 0.5, 'F#5'], [1, 1, 'A5'], [2, 0.5, 'G5'], [2.5, 0.5, 'F#5'], [3, 0.5, 'E5'], [3.5, 0.5, 'D5']],
   [[0, 1.5, 'E5'], [1.5, 0.5, 'C#5'], [2, 0.5, 'A4'], [2.5, 0.5, 'C#5'], [3, 1, 'E5']],
   [[0, 0.5, 'D5'], [0.5, 0.5, 'F#5'], [1, 1, 'B5'], [2, 0.5, 'A5'], [2.5, 0.5, 'F#5'], [3, 1, 'D5']],
   [[0, 0.5, 'E5'], [0.5, 0.5, 'G5'], [1, 0.5, 'B5'], [1.5, 0.5, 'A5'], [2, 0.5, 'G5'], [2.5, 0.5, 'E5'], [3, 0.5, 'C#5'], [3.5, 0.5, 'A4']],
 ];
-const BRIDGE = [
+export const BRIDGE = [
   [[0, 1.5, 'B4'], [1.5, 0.5, 'D5'], [2, 2, 'F#5']],
   [[0, 1.5, 'E5'], [1.5, 0.5, 'C#5'], [2, 2, 'A4']],
   [[0, 1, 'B4'], [1, 1, 'D5'], [2, 1, 'F#5'], [3, 1, 'A5']],

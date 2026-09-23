@@ -119,6 +119,30 @@ export function bass(freq, dur, vel = 0.8) {
 }
 
 /**
+ * A fretless bass: a round tone that slides into each note from the one
+ * before, the filter opening a little after the attack (the "mwah"), and
+ * a slow vibrato on long notes.
+ */
+export function fretless(freq, dur, vel = 0.8, { from = freq, slide = 0.07 } = {}) {
+  const n = len(dur + 0.4);
+  const out = new Float32Array(n);
+  const lp = new SVF(400, 1.1);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / RATE;
+    const k = Math.min(1, t / slide);
+    const vib = 1 + 0.005 * Math.sin(TAU * 4.6 * t) * Math.min(1, Math.max(0, (t - 0.35) / 0.4));
+    const f = from * Math.pow(freq / from, k * k * (3 - 2 * k)) * vib;
+    ph += f / RATE;
+    if (i % 32 === 0) lp.set(Math.min(6000, f * (1.8 + 2.6 * vel * (1 - Math.exp(-t / 0.06)) * Math.exp(-t / 0.35))), 1.1);
+    const env = adsr(t, dur, { a: 0.015, d: 1.1, s: 0.55, r: 0.14 });
+    const v = (2 * (ph % 1) - 1) * 0.45 + Math.sin(TAU * ph) * 0.7;
+    out[i] = lp.tick(v) * env * (0.5 + 0.5 * vel);
+  }
+  return out;
+}
+
+/**
  * A breathy FM lead, like the flute-and-brass patches of the day: the tone
  * blooms after the attack, scoops up into pitch, and gets vibrato if held.
  */
@@ -298,6 +322,31 @@ export function crash(vel = 1) {
     }
     hp.tick(noise() + ring * 0.08);
     out[i] = hp.hp * Math.exp(-t / 0.9) * vel * 0.6;
+  }
+  return out;
+}
+
+// Brushes on a snare: a tap (wire on the head, a little drum tone under
+// it), or with `sweep` seconds, a long swish round the head.
+export function brush(vel = 1, { sweep = 0 } = {}) {
+  const T = sweep || 0.2;
+  const n = len(T + 0.08);
+  const out = new Float32Array(n);
+  const noise = noiseSource(sweep ? 61 : 67);
+  const bp = new SVF(sweep ? 3200 : 4400, 0.6);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / RATE;
+    bp.tick(noise());
+    if (sweep) {
+      const u = Math.min(1, t / T);
+      if (i % 64 === 0) bp.set(2600 + 1800 * Math.sin(Math.PI * u), 0.6);
+      out[i] = bp.bp * Math.sin(Math.PI * u) ** 1.5 * 0.55 * vel;
+    } else {
+      const tone = Math.sin(ph) * Math.exp(-t / 0.025) * 0.3;
+      out[i] = (bp.bp * Math.min(1, t / 0.002) * Math.exp(-t / 0.05) + tone) * vel;
+      ph += (TAU * 185) / RATE;
+    }
   }
   return out;
 }

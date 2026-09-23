@@ -4,7 +4,8 @@
 // the yellow car's engine following its speed, the door when it has
 // parked, and the NO in NO VACANCY buzzing on frame by frame.
 
-import { RATE, SVF, noiseSource, blip, bell } from '../../src/audio/synth.js';
+import { RATE, blip, bell } from '../../src/audio/synth.js';
+import { shapedNoise, click, door, engine, crickets, birds, gull, surf, rigging, lapping, wind, hum, speedOf } from '../../src/audio/fx.js';
 import * as SC from './score.js';
 import { chordAt } from './music.js';
 import { LETTER, CARD } from './screen.js';
@@ -18,33 +19,7 @@ const smooth = (a, b, x) => {
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const DEG = Math.PI / 180;
 
-// A deterministic stream of numbers in [0, 1) for scattering events.
-function rng(seed) {
-  const n = noiseSource(seed);
-  return () => (n() + 1) / 2;
-}
-
 // ---------------------------------------------------------------- sources
-
-// Noise shaped by a function of time: fn(t) -> [gain, cutoff, q, mode].
-function shapedNoise(seconds, seed, fn, every = 32) {
-  const out = new Float32Array(len(seconds));
-  const noise = noiseSource(seed);
-  const f = new SVF(1000, 0.7);
-  let g = 0;
-  let mode = 'lp';
-  for (let i = 0; i < out.length; i++) {
-    if (i % every === 0) {
-      const [gain, cutoff, q = 0.7, m = 'lp'] = fn(i / RATE);
-      g = gain;
-      mode = m;
-      f.set(cutoff, q);
-    }
-    f.tick(noise());
-    out[i] = (mode === 'bp' ? f.bp : mode === 'hp' ? f.hp : f.lp) * g;
-  }
-  return out;
-}
 
 function coin() {
   const a = blip(987.8, 0.075, 0.9, { duty: 0.5, decay: 0.02 });
@@ -75,206 +50,6 @@ function warp(up) {
 
 function swish() {
   return shapedNoise(0.4, 9, (t) => [0.4 * Math.sin(Math.PI * Math.min(1, t / 0.35)), 1200 + 5000 * (t / 0.35), 1.2, 'bp']);
-}
-
-function click(vel = 1, tone = 3000) {
-  const out = new Float32Array(len(0.02));
-  const n = noiseSource(tone);
-  for (let i = 0; i < out.length; i++) out[i] = n() * Math.exp(-i / (RATE * 0.002)) * vel;
-  return out;
-}
-
-// A car door: the thump of the panel, the latch, a little rattle.
-function door() {
-  const out = new Float32Array(len(0.5));
-  const n = noiseSource(77);
-  const lp = new SVF(260, 0.9);
-  for (let i = 0; i < out.length; i++) {
-    const t = i / RATE;
-    const thump = Math.sin(TAU * 62 * t) * Math.exp(-t / 0.06) * 0.8;
-    const body = lp.tick(n()) * Math.exp(-t / 0.05) * 1.6;
-    const latch = t > 0.012 && t < 0.02 ? n() * 0.5 : 0;
-    const rattle = t > 0.03 ? n() * 0.04 * Math.exp(-(t - 0.03) / 0.08) : 0;
-    out[i] = thump + body + latch + rattle;
-  }
-  return out;
-}
-
-/**
- * An engine by its speed: firing pulses of a V8 whose revs follow the car,
- * rougher under load, with road noise under it. speed(t) in m/s, `off`
- * the moment the key is turned (seconds, from the start of the buffer).
- */
-function engine(seconds, speed, { off = Infinity, seed = 3, idle = 13, cylinders = 8 } = {}) {
-  const out = new Float32Array(len(seconds));
-  const n = noiseSource(seed);
-  const lp = new SVF(700, 0.8);
-  const road = new SVF(500, 0.6);
-  let ph = 0;
-  let prev = speed(0);
-  let load = 0;
-  for (let i = 0; i < out.length; i++) {
-    const t = i / RATE;
-    const v = speed(t);
-    if (i % 256 === 0) {
-      const a = (v - prev) * (RATE / 256);
-      prev = v;
-      load += (Math.max(0, Math.min(1, 0.4 + a * 0.25)) - load) * 0.1;
-    }
-    // Revs: idle, climbing with speed; spinning down after the key.
-    const dying = t > off ? Math.exp(-(t - off) / 0.18) : 1;
-    const rpm = (800 + v * 95) * (0.3 + 0.7 * dying);
-    const f = (rpm / 60) * (cylinders / 2);
-    ph += f / RATE;
-    const p = ph % 1;
-    const half = Math.floor(ph) % 2 ? 0.75 : 1; // the burble of a cross-plane V8
-    const pulse = Math.exp(-p * 5) * half - 0.3;
-    if (i % 32 === 0) lp.set(300 + f * 3, 0.8);
-    const tone = lp.tick(pulse + n() * 0.25 * Math.exp(-p * 8));
-    const hiss = road.tick(n()) * Math.min(1, v / idle) * 0.5;
-    out[i] = (tone * (0.55 + 0.45 * load) + hiss) * dying;
-  }
-  return out;
-}
-
-// Crickets: several, each chirping in trains of pulses at its own rate.
-function crickets(seconds, seed, count = 4) {
-  const out = new Float32Array(len(seconds));
-  const r = rng(seed);
-  for (let c = 0; c < count; c++) {
-    const f = 4200 + r() * 900;
-    const rate = 0.55 + r() * 0.5;
-    const pulses = 3 + Math.floor(r() * 3);
-    const gain = 0.05 + r() * 0.05;
-    for (let t0 = r() * rate; t0 < seconds; t0 += rate * (0.9 + 0.2 * r())) {
-      for (let k = 0; k < pulses; k++) {
-        const o = len(t0 + k * 0.045);
-        for (let j = 0; j < len(0.03) && o + j < out.length; j++) {
-          const tt = j / RATE;
-          out[o + j] += Math.sin(TAU * f * tt) * Math.sin((Math.PI * tt) / 0.03) * gain;
-        }
-      }
-    }
-  }
-  return out;
-}
-
-// Songbirds: little sweeps and trills.
-function birds(seconds, seed, density) {
-  const out = new Float32Array(len(seconds));
-  const r = rng(seed);
-  let t = r() * 0.5;
-  while (t < seconds) {
-    const d = density(t);
-    if (d > 0 && r() < d) {
-      const notes = 2 + Math.floor(r() * 5);
-      const f0 = 2600 + r() * 2600;
-      const dir = r() < 0.5 ? -1 : 1;
-      const g = 0.08 + r() * 0.08;
-      let o = t;
-      for (let k = 0; k < notes; k++) {
-        const nl = 0.04 + r() * 0.06;
-        const fa = f0 * (1 + 0.08 * k * dir);
-        const fb = fa * (1 + (r() - 0.3) * 0.5);
-        let ph = 0;
-        const i0 = len(o);
-        for (let j = 0; j < len(nl) && i0 + j < out.length; j++) {
-          const u = j / len(nl);
-          ph += (TAU * (fa + (fb - fa) * u)) / RATE;
-          out[i0 + j] += Math.sin(ph + 0.8 * Math.sin(ph * 2)) * Math.sin(Math.PI * u) * g;
-        }
-        o += nl + 0.02 + r() * 0.05;
-      }
-      t = o + 0.15 + r() * 0.9;
-    } else t += 0.3;
-  }
-  return out;
-}
-
-// A gull: two or three nasal cries, each rising then falling.
-function gull(seed) {
-  const r = rng(seed);
-  const calls = 2 + Math.floor(r() * 2);
-  const out = new Float32Array(len(calls * 0.42 + 0.3));
-  const bp = new SVF(2100, 1.5);
-  let ph = 0;
-  for (let c = 0; c < calls; c++) {
-    const o = len(c * (0.36 + r() * 0.08));
-    const L = 0.22 + r() * 0.1;
-    const f0 = 1150 + r() * 250;
-    for (let j = 0; j < len(L) && o + j < out.length; j++) {
-      const u = j / len(L);
-      const f = f0 * (1 + 0.45 * Math.sin(Math.PI * Math.min(1, u * 1.4)) - 0.2 * u);
-      ph += f / RATE;
-      const saw = 2 * (ph % 1) - 1;
-      out[o + j] += bp.tick(saw) * Math.sin(Math.PI * u) ** 0.6 * 0.5;
-    }
-  }
-  return out;
-}
-
-// Surf: each breaking wave a rush that swells and hisses away. `waves`:
-// [time of the break, loudness, brightness].
-function surf(seconds, seed, waves, { floor = 0.05 } = {}) {
-  return shapedNoise(seconds, seed, (t) => {
-    let g = floor;
-    let bright = 0;
-    for (const [tw, a, br] of waves) {
-      const x = t - tw;
-      if (x < -0.8 || x > 6) continue;
-      const env = x < 0 ? a * Math.pow(1 + x / 0.8, 2) : a * Math.exp(-x / (0.9 + 1.2 * br));
-      g += env;
-      bright = Math.max(bright, env * br);
-    }
-    return [g, 500 + 4200 * Math.min(1, bright * 1.5), 0.6];
-  });
-}
-
-// Halyards tapping aluminum masts, and water in among the hulls.
-function rigging(seconds, seed) {
-  const out = new Float32Array(len(seconds));
-  const r = rng(seed);
-  for (let t = r(); t < seconds; t += 0.25 + r() * 1.3) {
-    const hits = 1 + Math.floor(r() * 3);
-    for (let k = 0; k < hits; k++) {
-      const b = bell(1800 + r() * 1600, 0.02, 0.18 + r() * 0.12, { ratio: 2.76, ring: 0.05 + r() * 0.05 });
-      const o = len(t + k * 0.12);
-      for (let j = 0; j < b.length && o + j < out.length; j++) out[o + j] += b[j];
-    }
-  }
-  return out;
-}
-
-function lapping(seconds, seed, gain = 0.2) {
-  const r = rng(seed);
-  const laps = [];
-  for (let t = 0; t < seconds; t += 0.35 + r() * 0.6) laps.push([t, 0.3 + r() * 0.7]);
-  return shapedNoise(seconds, seed, (t) => {
-    let g = 0.02;
-    for (const [tl, a] of laps) {
-      const x = t - tl;
-      if (x > 0 && x < 0.5) g += a * Math.sin(Math.PI * (x / 0.5)) ** 2;
-    }
-    return [g * gain, 420, 1.1, 'bp'];
-  });
-}
-
-function wind(seconds, seed, gain, fn = () => 1) {
-  return shapedNoise(seconds, seed, (t) => [gain * fn(t) * (0.7 + 0.3 * Math.sin(t * 0.7) * Math.sin(t * 0.23 + 1)), 350 + 250 * Math.sin(t * 0.5), 0.7]);
-}
-
-// The hum of neon: 120 Hz and its harmonics, only while `on(t)`.
-function hum(seconds, on, gain = 0.1) {
-  const out = new Float32Array(len(seconds));
-  const lp = new SVF(900, 0.7);
-  let g = 0;
-  for (let i = 0; i < out.length; i++) {
-    const t = i / RATE;
-    if (i % 32 === 0) g = on(t);
-    const ph = (120 * t) % 1;
-    out[i] = lp.tick((2 * ph - 1) * 0.6 + Math.sin(TAU * 60 * t) * 0.4) * g * gain;
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------- the cue sheet
@@ -458,14 +233,4 @@ export function logoTimes() {
   const text = 'PALOMA BAY';
   for (let i = 0; i < text.length; i++) if (text[i] !== ' ') out.push(SC.TITLE.logo + i * LETTER + 0.32);
   return out;
-}
-
-function speedOf(profile, t) {
-  if (t <= profile[0][0]) return profile[0][1];
-  for (let i = 0; i + 1 < profile.length; i++) {
-    const [t0, v0] = profile[i];
-    const [t1, v1] = profile[i + 1];
-    if (t <= t1) return v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
-  }
-  return profile[profile.length - 1][1];
 }

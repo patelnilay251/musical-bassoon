@@ -17,7 +17,9 @@ const once = (key, make) => {
   return cache.get(key);
 };
 
-function play(mix, e) {
+// One event of the arrangement, on its voice. (The day film's car radio
+// plays this song too.)
+export function play(mix, e) {
   const { t, vel = 1 } = e;
   switch (e.inst) {
     case 'ep':
