@@ -23,7 +23,8 @@ export const VIEWS = ['front', 'walkway', 'pool', 'road'];
 const SEED = 1979;
 const SEA = -4;
 
-export const DEFAULT_PROPS = { car: true, noVacancy: false };
+// roomLight: the visitor's window, 0 (dark) to 1 (lit).
+export const DEFAULT_PROPS = { car: true, noVacancy: false, roomLight: 0 };
 
 const ROOM = 4; // room width along z
 const N = 11; // rooms per floor
@@ -36,6 +37,7 @@ const WALK = 1.9; // walkway depth, in front of the upper rooms
 const FAR = 6000;
 
 const DOORS = ['doorRed', 'doorYellow', 'doorBlue', 'doorGreen', 'doorPink'];
+const VISITOR_ROOM = 7; // z 6..10, in front of the third stall
 
 export function build(props = {}) {
   const P = { ...DEFAULT_PROPS, ...props };
@@ -64,14 +66,15 @@ export function build(props = {}) {
   }
   // Picket railing along the walkway: its shadow is the motel's pattern.
   pickets(b, M, -WALK + 0.1, F1, Z0 + 0.1, Z1 - 0.1);
-  // Rooms.
+  // Rooms. The visitor has the ground-floor room behind their stall.
   for (const [floor, y0] of [
     [0, 0],
     [1, F1],
   ]) {
     for (let k = 0; k < N; k++) {
       const z = Z0 + k * ROOM;
-      room(b, M, z, y0, M[DOORS[(k + floor * 2) % DOORS.length]], lights);
+      const glass = floor === 0 && k === VISITOR_ROOM ? M.visitorGlass : M.roomGlass;
+      room(b, M, z, y0, M[DOORS[(k + floor * 2) % DOORS.length]], glass, lights);
     }
   }
   // End walls: a stripe of color at the south corner, windows north.
@@ -181,7 +184,8 @@ export function build(props = {}) {
   b.use(M.sidewalk, CAST);
   b.box(-32, 0, -FAR, LX0, 0.15, FAR, 'ny');
   b.box(-49, 0, -FAR, -46, 0.15, FAR, 'ny');
-  b.use(M.asphalt, 0);
+  materials[M.road].lanes = { ax: 1, az: 0, centers: [-42.27, -35.85] };
+  b.use(M.road, 0);
   b.quad([-46, 0, -FAR], [-46, 0, FAR], [-32, 0, FAR], [-32, 0, -FAR]);
   b.use(M.lineYellow, 0);
   for (const x of [-39.2, -38.92]) b.box(x, 0, -FAR, x + 0.12, 0.012, FAR, 'ny');
@@ -260,6 +264,7 @@ export function build(props = {}) {
     seaLevel: SEA,
     pool,
     lights,
+    emitScale: { visitorGlass: P.roomLight },
     shadowBox: { min: [-60, -1, -45], max: [DEPTH + 2, 24, 50] },
     layout,
     views: {
@@ -274,7 +279,7 @@ export function build(props = {}) {
 
 // One room: a colored door, a window with a sill, an air conditioner
 // under it, and a lamp by the door.
-function room(b, M, z, y0, door, lights) {
+function room(b, M, z, y0, door, glass, lights) {
   const dz0 = z + 0.55;
   const dz1 = dz0 + 0.95;
   b.object();
@@ -285,7 +290,7 @@ function room(b, M, z, y0, door, lights) {
   const wz0 = z + 1.95;
   const wz1 = z + 3.6;
   b.object();
-  b.use(M.glass, CAST);
+  b.use(glass, CAST);
   b.quad([-0.01, y0 + 1.0, wz1], [-0.01, y0 + 2.25, wz1], [-0.01, y0 + 2.25, wz0], [-0.01, y0 + 1.0, wz0]);
   b.use(M.frame, CAST);
   b.box(-0.07, y0 + 0.92, wz0 - 0.06, 0, y0 + 1.0, wz1 + 0.06);

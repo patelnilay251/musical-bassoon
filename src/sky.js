@@ -116,6 +116,8 @@ export function skyState(hours, sky = {}) {
     night,
     lights: smoothstep(1.5, -3.5, sunEl),
     stars: smoothstep(-5, -13, sunEl),
+    // A film's own clock, if it keeps one: stars twinkle by it.
+    t: sky.t,
     moonUp,
     clouds: sky.clouds || [],
     streaks: sky.streaks || [],
@@ -293,7 +295,14 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
       const d = Math.hypot((az * Math.cos(el * DEG)) / cell - cu - ox, el / cell - cv - oy) * cell;
       const rad = 0.035 + 0.05 * hash2(cu + 5, cv + 9);
       if (d < rad) {
-        const k = S.stars * smoothstep(0.03, 0.2, e) * (0.55 + 0.45 * h);
+        let k = S.stars * smoothstep(0.03, 0.2, e) * (0.55 + 0.45 * h);
+        if (S.t !== undefined) {
+          // Each star shimmers at its own slow rate, more so near the
+          // horizon, where there is more air to look through.
+          const f = 2 + 4 * hash2(cu + 17, cv - 3);
+          const w = Math.sin(S.t * f + 6.283 * hash2(cu - 41, cv + 23)) * (0.6 + 0.4 * Math.sin(S.t * f * 0.37 + h * 20));
+          k *= 1 - (0.16 + 0.3 * (1 - smoothstep(4, 35, el))) * (0.5 + 0.5 * w);
+        }
         r += (0.95 - r) * k;
         g += (0.93 - g) * k;
         b += (0.85 - b) * k;

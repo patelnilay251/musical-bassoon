@@ -14,6 +14,7 @@ import { addFanPalm } from '../world/fanpalm.js';
 import { addCar, parkedCar } from '../world/cars.js';
 import { hills, lampPost } from '../world/common.js';
 import { neonWord, addBoard } from '../world/signs.js';
+import { addMeter, addHydrant, addNewsBox } from '../world/street.js';
 import { level } from '../camera.js';
 
 export const NAME = 'The Boulevard';
@@ -64,8 +65,10 @@ export function build(props = {}) {
     b.quad([x1, gy(x1) + lo, z0], [x1, gy(x1) + lo, z1], [x1, gy(x1) + h, z1], [x1, gy(x1) + h, z0]);
   };
   const [cx0, cx1] = CROSS;
-  // Roadway, the cross street, and the coast road at the bottom.
-  flat(M.asphalt, X0 - 16, X1, -12, 12);
+  // Roadway, the cross street, and the coast road at the bottom. Traffic
+  // wears the middle of each lane of the boulevard.
+  materials[M.road].lanes = { ax: sr, az: cr, centers: [-7.9, -3.13, 3.13, 7.9] };
+  flat(M.road, X0 - 16, X1, -12, 12);
   flat(M.asphalt, cx0, cx1, -FAR, -12);
   flat(M.asphalt, cx0, cx1, 12, FAR);
   flat(M.asphalt, X0 - 16, X0, -FAR, -12);
@@ -157,6 +160,38 @@ export function build(props = {}) {
     }
   }
   diner(b, M, -1, cx0 - 31, cx0 - 2, light);
+
+  // ---- the curb: a meter for every space, hydrants near the corners and
+  // now and then down the hill, papers by the diner door
+  const lamps = new Set();
+  for (let x = X1 - 26; x > X0 + 20; x -= 48) lamps.add(Math.round(x));
+  const kerb = (fn, x, s) => {
+    b.push();
+    b.translate(x, gy(x) + 0.15, s * 12.45);
+    if (s > 0) b.rotateY(Math.PI); // face the road
+    fn();
+    b.pop();
+  };
+  for (const s of [-1, 1]) {
+    for (let x = X1 - 12 + 2.9; x > -260; x -= 6.4) {
+      if (x > cx0 - 6 && x < cx1 + 6) continue;
+      if (s > 0 && Math.abs(x - (cx0 - 15)) < 14) continue;
+      if ([...lamps].some((l) => Math.abs(l - x) < 0.8)) continue;
+      kerb(() => addMeter(b, M), x, s);
+    }
+    for (const x of [cx0 - 8.2, cx1 + 8.2, -104.3, 121.7, -212.5]) {
+      if (!(s > 0 && Math.abs(x - (cx0 - 15)) < 14)) kerb(() => addHydrant(b, M), x, s);
+    }
+  }
+  for (const [x, paint] of [
+    [cx0 - 28.6, M.doorBlue],
+    [cx0 - 27.9, M.doorYellow],
+  ]) {
+    b.push();
+    b.translate(x, gy(x) + 0.15, -15.9);
+    addNewsBox(b, M, paint);
+    b.pop();
+  }
 
   // ---- the traffic light at the corner, facing uphill
   signal(b, M, cx1 + 1.2, -12.8, light);

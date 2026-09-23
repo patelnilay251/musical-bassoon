@@ -26,8 +26,9 @@ export function propsAt(place, hours) {
   const car = whereIs(hours) === place;
   switch (place) {
     case 'motel':
-      // The last room goes when the visitor gets back for the night.
-      return { car, noVacancy: hours >= 20.8 || hours < 5.5 };
+      // The last room goes when the visitor gets back for the night, and
+      // their window stays lit until a little before midnight.
+      return { car, noVacancy: hours >= 20.8 || hours < 5.5, roomLight: hours >= 20.85 && hours < 23.7 ? 1 : 0 };
     case 'boulevard':
       return { car };
     case 'beach': {
@@ -37,6 +38,9 @@ export function propsAt(place, hours) {
         towel: there,
         umbrella: there ? 'open' : null,
         board: hours >= 13.1 && hours < 15.1 ? 'gone' : there ? 'sand' : 'rack',
+        // Footprints down to the water, and back; the evening tide and
+        // the wind have them by morning.
+        prints: hours >= 13.1 && hours < 23 ? (hours >= 15.1 ? 2 : 1) : 0,
       };
     }
     case 'house': {

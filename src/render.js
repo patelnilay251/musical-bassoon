@@ -24,14 +24,15 @@ export const KIND = {
 export const PATTERN = {
   none: 0,
   deck: 1, // square stone pavers, world xz
-  lawn: 2, // mowing stripes, world x
+  lawn: 2, // mowing stripes running along world x
   tile: 3, // small mosaic grid, face uv
   trunk: 4, // palm trunk rings, uv v
   stripes: 5, // fabric stripes, uv u, color2
-  road: 6, // speckled asphalt
+  road: 6, // asphalt: tar patches, and lane wear where the material has lanes
   segments: 7, // alternating color2 by uv u (umbrella, float)
   planks: 8, // board seams along world x (docks, piers), color2 unused
   frond: 9, // palm leaves: darker at the crown, lighter toward the tips
+  sand: 10, // dry sand: soft drifts, and wind ripples with crests along z
 };
 
 const TILE = 64; // output pixels per tile edge
@@ -57,8 +58,15 @@ export class Renderer {
     this.mEmit = new Float64Array(nm * 3);
     this.mScale = new Float64Array(nm);
     this.mAO = new Uint8Array(nm);
+    this.mCurtain = new Uint8Array(nm);
+    this.mSwitch = new Uint8Array(nm);
+    // Lanes worn into a road: { ax, az } the unit vector across it, and
+    // the lane centers along that axis.
+    this.mLanes = mats.map((m) => (m.lanes ? { ax: m.lanes.ax, az: m.lanes.az, centers: Float64Array.from(m.lanes.centers) } : null));
     mats.forEach((m, i) => {
       this.mKind[i] = KIND[m.kind ?? 'diffuse'];
+      this.mCurtain[i] = m.curtains ? 1 : 0;
+      this.mSwitch[i] = m.switched ? 1 : 0;
       this.mPat[i] = PATTERN[m.pattern ?? 'none'];
       const c = hex(m.color ?? '#ff00ff');
       const c2 = hex(m.color2 ?? m.color ?? '#ff00ff');
@@ -614,7 +622,7 @@ export class Renderer {
         b = cb * (ab + kb * lit * 0.95) + sheen;
       }
       if (pat !== PATTERN.none) {
-        const f = this.pattern(pat, m, px, py, pz, u, v, dist);
+        const f = this.pattern(pat, m, px, py, pz, u, v, dist, dx, dy, dz);
         if (f < 0) {
           // Negative means "use color2", keeping the lighting ratio.
           const k = -f;
@@ -800,11 +808,63 @@ export class Renderer {
     out[2] = b;
   }
 
+  // How much ground one sample covers across bands that vary along the
+  // horizontal direction (gx, gz): seen at a grazing angle, the ground is
+  // stretched along the line of sight, so bands facing the eye blur first.
+  footAcross(foot, dx, dy, dz, gx, gz) {
+    const c = (gx * dx + gz * dz) / (Math.sqrt(dx * dx + dz * dz) || 1);
+    const k = 1 / Math.max(Math.abs(dy), 0.03);
+    return foot * Math.sqrt(c * c * k * k + 1 - c * c);
+  }
+
   // Brightness factor for a procedural pattern (negative: use color2).
   // Patterns are kept faint: a painter suggests joints, never draws them all.
-  pattern(pat, m, px, py, pz, u, v, dist) {
+  pattern(pat, m, px, py, pz, u, v, dist, dx, dy, dz) {
     const s = this.mScale[m];
     const foot = dist * this.pixelAngle * 1.5;
+    if (pat === PATTERN.sand) {
+      // Broad soft drifts, and near the eye the ripples the sea wind
+      // leaves: crests up and down the beach, each with a shaded lee.
+      let f = 1 + 0.05 * (valueNoise(px * 0.07 + 11.3, pz * 0.07) - 0.5);
+      const fade = 1 - smoothstep(0.02, 0.07, this.footAcross(foot, dx, dy, dz, 1, 0));
+      if (fade > 0) {
+        // Crests wander, and break off and start again.
+        const w = (px + 0.3 * Math.sin(pz * 0.55 + 2 * Math.sin(pz * 0.13 + px * 0.05)) + 0.08 * Math.sin(pz * 2.1 + px * 1.3)) / (0.26 * s);
+        const r = w - Math.floor(w);
+        const lee = r < 0.22 ? -0.07 * (1 - r / 0.22) : 0.012;
+        f += lee * fade * smoothstep(0.2, 0.7, valueNoise(px * 0.9 + 3.3, pz * 0.7));
+      }
+      return f;
+    }
+    if (pat === PATTERN.lawn) {
+      // Mowing stripes a mower's width apart, the grass laid one way and
+      // then the other, and a little unevenness in the green.
+      const fade = 1 - smoothstep(0.15, 0.5, this.footAcross(foot, dx, dy, dz, 0, 1));
+      const sq = Math.max(-1, Math.min(1, 3 * Math.sin((Math.PI * pz) / (0.9 * s))));
+      return 1 + 0.045 * sq * fade + 0.05 * (valueNoise(px * 0.23 + 5.1, pz * 0.23) - 0.5);
+    }
+    if (pat === PATTERN.road) {
+      // Asphalt: soft patches of older and newer tar, and in each lane a
+      // darker oil stripe between the paler, polished tracks of the tires.
+      let f = 1 + 0.06 * (valueNoise(px * 0.08 + 3.1, pz * 0.08 - 1.7) - 0.5) + 0.03 * (valueNoise(px * 0.45, pz * 0.45) - 0.5);
+      const L = this.mLanes[m];
+      if (L) {
+        const fade = 1 - smoothstep(0.1, 0.35, this.footAcross(foot, dx, dy, dz, L.ax, L.az));
+        if (fade > 0) {
+          const a = px * L.ax + pz * L.az;
+          const along = px * L.az - pz * L.ax;
+          let w = 0;
+          for (let i = 0; i < L.centers.length; i++) {
+            const d = a - L.centers[i];
+            if (d > 1.8 || d < -1.8) continue;
+            const e = Math.abs(d) - 0.8;
+            w += -0.12 * Math.exp(-(d * d) / 0.2) + 0.05 * Math.exp(-(e * e) / 0.07);
+          }
+          f += w * fade * (0.65 + 0.7 * valueNoise(along * 0.035, a * 0.2 + 9.7));
+        }
+      }
+      return f;
+    }
     if (pat === PATTERN.deck) {
       const w = 0.012;
       const fx = (px / s) % 1;
@@ -884,12 +944,19 @@ export class Renderer {
       g += (T[1] * 1.1 + 0.08 - g) * band * day;
       b += (T[2] * 1.05 + 0.06 - b) * band * day;
     }
-    // By night most rooms are lit; some are not.
+    // By night most rooms are lit; some are not. A switched window is lit
+    // when its power says so, whatever the chances.
     const obj = this.mesh.obj[t];
     const e = this.mEmit;
-    const on = e[m * 3] + e[m * 3 + 1] + e[m * 3 + 2] > 0 ? S.lights * (hash2(obj, 7) < 0.72 ? 1 : 0.1) : 0;
+    let on = 0;
+    if (e[m * 3] + e[m * 3 + 1] + e[m * 3 + 2] > 0) on = S.lights * (this.mSwitch[m] ? 0.1 + 0.9 * clamp(this.mEmitK[m], 0, 1) : hash2(obj, 7) < 0.72 ? 1 : 0.1);
     if (on > 0) {
-      const warm = 0.9 + 0.1 * (1 - hh);
+      let warm = 0.9 + 0.1 * (1 - hh);
+      // Drawn curtains: soft uneven folds with the lamp behind them.
+      if (this.mCurtain[m]) {
+        const u = along / 0.23 + 0.4 * Math.sin(along * 1.7 + obj);
+        warm *= 0.8 + 0.2 * (0.5 + 0.5 * Math.cos(u * 2 * Math.PI));
+      }
       r += (e[m * 3] * warm * 1.22 - r) * on;
       g += (e[m * 3 + 1] * warm * 1.22 - g) * on;
       b += (e[m * 3 + 2] * warm * 1.22 - b) * on;

@@ -22,7 +22,7 @@ export function renderFrame(f, { ss = 2, shadowSize = 2048 } = {}) {
     const world = buildPlace(sc.place, sc.props);
     setMotion(0, 0);
     sc.sky(world.sky);
-    if (sc.power) world.emitScale = sc.power;
+    if (sc.power) world.emitScale = { ...world.emitScale, ...sc.power };
     const r = new Renderer(world, { shadowSize });
     r.setTime(sc.hours, sc.motion.t);
     r.setCamera(fit(sc.camera, W / H), W, H, ss);

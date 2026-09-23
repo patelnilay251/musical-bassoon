@@ -14,7 +14,7 @@ import { addFanPalm } from '../world/fanpalm.js';
 import { addCar, parkedCar } from '../world/cars.js';
 import { addUmbrella } from '../world/props.js';
 import { hills, railing, lampPost } from '../world/common.js';
-import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFoam, addBreakers } from '../world/shore.js';
+import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFoam, addBreakers, addFootprints } from '../world/shore.js';
 import { level } from '../camera.js';
 import { motion } from '../world/motion.js';
 
@@ -29,7 +29,8 @@ const Z = 3000; // the beach runs on out of sight both ways
 const FAR = 25000;
 const PIER = -95;
 
-export const DEFAULT_PROPS = { car: true, towel: true, umbrella: 'open', board: 'sand' };
+// prints: the visitor's footprints, 0 none, 1 down to the water, 2 and back.
+export const DEFAULT_PROPS = { car: true, towel: true, umbrella: 'open', board: 'sand', prints: 0 };
 
 const sandY = (x) => x * SLOPE;
 
@@ -178,6 +179,13 @@ export function build(props = {}) {
     b.translate(0, -1.15, 0);
     addSurfboard(b, M.boardAqua, 2.45);
     b.pop();
+  }
+  // Footprints: down to the water with the board, and later back up.
+  if (P.prints) {
+    const fp = sub(15);
+    const opts = { ground: sandY, wet: tide, swash: 1.1 };
+    addFootprints(b, M, fp.fork(1), [[spot.x - 1.9, spot.z + 0.1], [15, 8.9], [9, 7.2], [0.6, 6.3]], opts);
+    if (P.prints > 1) addFootprints(b, M, fp.fork(2), [[0.8, 8.2], [7.5, 9.0], [13.5, 10.2], [spot.x - 1.6, spot.z + 0.9]], opts);
   }
   // Other umbrellas up and down the beach, left standing.
   const ur = sub(6);

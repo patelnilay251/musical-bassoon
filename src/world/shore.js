@@ -119,6 +119,64 @@ export function addTowel(b, M, mat = M.towel) {
   b.box(-0.45, 0, -0.9, 0.45, 0.025, 0.9);
 }
 
+// Someone's footprints along a path of [x, z] points: left and right feet
+// half a stride apart, pressed into the sand at ground(x), darker where
+// the sand is wet (x below wet(z)), and gone where the swash reaches
+// (x below swash).
+export function addFootprints(b, M, rng, pts, { ground, wet, swash = 1, stride = 1.44, gauge = 0.1 }) {
+  // Round the corners (twice cut), then walk it.
+  let p = pts;
+  for (let n = 0; n < 2; n++) {
+    const q = [p[0]];
+    for (let i = 0; i + 1 < p.length; i++) {
+      const [ax, az] = p[i];
+      const [bx, bz] = p[i + 1];
+      q.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25], [ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]);
+    }
+    q.push(p[p.length - 1]);
+    p = q;
+  }
+  b.object();
+  let side = 1;
+  let next = 0.3;
+  let walked = 0;
+  for (let i = 0; i + 1 < p.length; i++) {
+    const [ax, az] = p[i];
+    const [bx, bz] = p[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const tx = (bx - ax) / len;
+    const tz = (bz - az) / len;
+    while (next <= walked + len) {
+      const u = next - walked;
+      const x = ax + tx * u - tz * side * gauge + rng.range(-0.02, 0.02);
+      const z = az + tz * u + tx * side * gauge + rng.range(-0.02, 0.02);
+      next += stride / 2 + rng.range(-0.05, 0.05);
+      side = -side;
+      if (x < swash) continue;
+      b.use(x < wet(z) ? M.printWet : M.print, 0);
+      footprint(b, x, ground(x) + 0.007, z, Math.atan2(tz, tx) + side * 0.12 + rng.range(-0.06, 0.06));
+    }
+    walked += len;
+  }
+}
+
+// One print, heel to toe along heading `a` (radians from +x toward +z):
+// a narrow heel and a wider ball, as a flat fan facing up.
+function footprint(b, x, y, z, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const n = 12;
+  const pt = (i) => {
+    const th = (i / n) * Math.PI * 2;
+    const u = Math.cos(th) * 0.13; // along the foot
+    const w = -Math.sin(th) * 0.045 * (1 + 0.35 * Math.cos(th)); // across: wider at the toe
+    return [x + u * c - w * s, y, z + u * s + w * c];
+  };
+  const mid = [x + 0.015 * c, y, z + 0.015 * s];
+  for (let i = 0; i < n; i++) b.tri(mid, pt(i), pt(i + 1));
+}
+
 // Pier from x = x0 (land) to x = x1 (sea) along z = zc, deck at `deck`,
 // on rows of pilings. Returns the lights of its lamps.
 export function addPier(b, M, { x0, x1, zc, deck = 6.5, half = 4.5, bay = 7, bed = -3 }) {

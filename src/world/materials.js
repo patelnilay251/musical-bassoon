@@ -37,7 +37,7 @@ export function makeMaterials(rng) {
   };
   add('deck', { color: '#f5f0e4', pattern: 'deck', scale: 1.2 });
   add('coping', { color: '#f8f4ea' });
-  add('lawn', { color: '#43a45e' });
+  add('lawn', { color: '#43a45e', pattern: 'lawn' });
   add('field', { color: '#bdb883' });
   add('drive', { color: '#ddd5c6', pattern: 'deck', scale: 3 });
   add('wall', { color: '#f4f0e7', ao: true });
@@ -46,6 +46,10 @@ export function makeMaterials(rng) {
   add('door', { color: accent.door });
   add('frame', { color: '#e8e3d8' });
   add('glass', { kind: 'glass', color: '#34507e', emit: '#ffc36e' });
+  // Motel rooms draw their curtains; the visitor's window is switched by
+  // hand (emitScale) instead of lit by chance.
+  add('roomGlass', { kind: 'glass', color: '#34507e', emit: '#ffc36e', curtains: true });
+  add('visitorGlass', { kind: 'glass', color: '#34507e', emit: '#ffc36e', curtains: true, switched: true });
   add('carGlass', { kind: 'glass', color: '#34507e' });
   add('boundary', { color: '#f1e9d9', ao: true });
   add('water', { kind: 'water', color: '#1596c4' });
@@ -92,14 +96,17 @@ export function makeMaterials(rng) {
   add('paintTeal', { kind: 'paint', color: '#1f8a76' });
   add('paintPink', { kind: 'paint', color: '#ee8f9c' });
   add('paintWhite', { kind: 'paint', color: '#f6f4ee' });
-  add('asphalt', { color: '#6c7188' });
-  add('lot', { color: '#858aa0' });
+  add('asphalt', { color: '#6c7188', pattern: 'road' });
+  add('road', { color: '#6c7188', pattern: 'road' }); // a scene gives it lanes to wear
+  add('lot', { color: '#858aa0', pattern: 'road' });
   add('lineWhite', { color: '#f5f2e8' });
   add('lineYellow', { color: '#f4c04a' });
   add('curb', { color: '#efe9dd' });
   add('sidewalk', { color: '#e8e0d2', pattern: 'deck', scale: 1.6 });
-  add('sand', { color: '#f2dcb8' });
+  add('sand', { color: '#f2dcb8', pattern: 'sand' });
   add('wetSand', { color: '#d9bf98' });
+  add('print', { color: '#e2c7a0' }); // footprints in dry sand
+  add('printWet', { color: '#c4a47c' }); // and in wet
   add('foam', { color: '#fdfcf8' });
   add('lace', { color: '#c9f1ee' }); // thinning foam over the shallows
   add('sea', { kind: 'harbor', color: '#1a5fb0' });
@@ -160,5 +167,8 @@ export function makeMaterials(rng) {
   add('canvasTop', { color: '#f2ead8' });
   add('whitewall', { color: '#f4f1e8' });
   add('plate', { color: '#2a4a8c' });
+  add('meter', { kind: 'paint', color: '#aeb4bf' });
+  add('meterPost', { color: '#5d6373' });
+  add('meterFlag', { color: '#e2473b' });
   return { list, M, accent, car };
 }
