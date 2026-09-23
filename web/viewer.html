@@ -248,6 +248,10 @@
             border: 1px solid var(--anthropic-light-gray);
         }
 
+        .preset-grid.looks {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
         .preset-grid .button.active {
             background: var(--anthropic-dark);
             color: white;
@@ -391,6 +395,11 @@
                 <div class="control-group">
                     <label>Camera</label>
                     <div class="preset-grid" id="presets"></div>
+                </div>
+
+                <div class="control-group">
+                    <label>Look</label>
+                    <div class="preset-grid looks" id="looks"></div>
                 </div>
 
                 <div class="control-group">

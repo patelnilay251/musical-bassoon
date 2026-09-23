@@ -14,7 +14,9 @@
 //                                                    and add the sound
 //   node scripts/film.js --film day --audio-only     just the soundtrack, as WAV
 //
-// Also: --crf n, --scale k (the attract mode's enlargement), --threads n.
+// Also: --crf n, --scale k (the attract mode's enlargement), --threads n,
+// --look name (paint it in another of the looks in src/looks.js; each film
+// keeps the one it was made in unless told).
 // ffmpeg must be on the PATH, or named by the FFMPEG environment variable.
 
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
@@ -36,7 +38,9 @@ async function main() {
   const name = args.film ?? 'attract';
   if (!FILMS[name]) throw new Error(`no film "${name}" (have: ${Object.keys(FILMS).join(', ')})`);
   const film = await import(FILMS[name]);
-  const opts = { draft: Boolean(args.draft), scale: args.scale, scan: args.scan === undefined ? undefined : Number(args.scan) };
+  const { LOOKS } = await import('../src/looks.js');
+  if (args.look !== undefined && !LOOKS[args.look]) throw new Error(`no look "${args.look}" (have: ${Object.keys(LOOKS).join(', ')})`);
+  const opts = { draft: Boolean(args.draft), scale: args.scale, scan: args.scan === undefined ? undefined : Number(args.scan), look: args.look };
   const { FPS, FRAMES, DURATION } = film;
   const encode = { ...(opts.draft ? film.DRAFT : film.ENCODE), ...(args.crf ? { crf: Number(args.crf) } : {}) };
   const out = resolve(args.out ?? (opts.draft ? `${ROOT}/out/film/${name}-draft.mp4` : `${ROOT}/${film.OUT}`));

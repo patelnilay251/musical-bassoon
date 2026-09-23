@@ -1,6 +1,9 @@
 // Palette and material table for one world. The seed picks the accent
 // colors; everything else is the house style: warm whites, cobalt, aqua,
-// palm green, and one loud color per resort.
+// palm green, and one loud color per resort. A few colors are the look's
+// (looks.js): the ground, the palms.
+
+import { lookOf } from '../looks.js';
 
 const ACCENTS = [
   { wall: '#ef8e7f', door: '#2f6db5' }, // salmon
@@ -20,7 +23,8 @@ const CANVAS = [
   ['#1f8a76', '#fbf6ee'],
 ];
 
-export function makeMaterials(rng) {
+export function makeMaterials(rng, look) {
+  const P = lookOf(look).colors;
   const accent = rng.pick(ACCENTS);
   const car = rng.pick(CARS);
   const canvas = rng.pick(CANVAS);
@@ -35,9 +39,9 @@ export function makeMaterials(rng) {
     M[name] = list.length;
     list.push({ name, ...def });
   };
-  add('deck', { color: '#f4e1d2', pattern: 'deck', scale: 1.2 });
-  add('coping', { color: '#f7ede4' });
-  add('lawn', { color: '#34a04e', pattern: 'lawn' });
+  add('deck', { color: P.deck, pattern: 'deck', scale: 1.2 });
+  add('coping', { color: P.coping });
+  add('lawn', { color: P.lawn, pattern: 'lawn' });
   add('field', { color: '#bdb883' });
   add('drive', { color: '#ddd5c6', pattern: 'deck', scale: 3 });
   add('wall', { color: '#f4f0e7', ao: true });
@@ -54,10 +58,10 @@ export function makeMaterials(rng) {
   add('boundary', { color: '#f1e9d9', ao: true });
   add('water', { kind: 'water', color: '#1596c4' });
   add('poolTile', { color: '#92dce6', pattern: 'tile' });
-  add('trunk', { color: '#9a806a', pattern: 'trunk' });
+  add('trunk', { color: P.trunk, pattern: 'trunk' });
   add('boot', { color: '#8f7a56' });
-  add('frond', { kind: 'foliage', color: '#1f7a3c', pattern: 'frond' });
-  add('frondDark', { kind: 'foliage', color: '#175f33', pattern: 'frond' });
+  add('frond', { kind: 'foliage', color: P.frond, pattern: 'frond' });
+  add('frondDark', { kind: 'foliage', color: P.frondDark, pattern: 'frond' });
   add('nut', { color: '#7a6a33' });
   add('hedge', { color: '#3d8c48' });
   add('loungerFrame', { color: '#f7f6f1' });
@@ -102,8 +106,8 @@ export function makeMaterials(rng) {
   add('lineWhite', { color: '#f5f2e8' });
   add('lineYellow', { color: '#f4c04a' });
   add('curb', { color: '#efe9dd' });
-  add('sidewalk', { color: '#ecdcd0', pattern: 'deck', scale: 1.6 });
-  add('sand', { color: '#f3d4ae', pattern: 'sand' });
+  add('sidewalk', { color: P.sidewalk, pattern: 'deck', scale: 1.6 });
+  add('sand', { color: P.sand, pattern: 'sand' });
   add('wetSand', { color: '#d9bf98' });
   add('print', { color: '#e2c7a0' }); // footprints in dry sand
   add('printWet', { color: '#c4a47c' }); // and in wet
@@ -113,9 +117,9 @@ export function makeMaterials(rng) {
   add('planks', { color: '#d2bc98', pattern: 'planks' });
   add('piling', { color: '#8c7a66' });
   add('rail', { color: '#f7f5ef' });
-  add('fanTrunk', { color: '#6e4a38', pattern: 'trunk', scale: 0.7 });
-  add('skirt', { color: '#5b4634' });
-  add('fanLeaf', { kind: 'foliage', color: '#1f7038', pattern: 'frond' });
+  add('fanTrunk', { color: P.fanTrunk, pattern: 'trunk', scale: 0.7 });
+  add('skirt', { color: P.skirt });
+  add('fanLeaf', { kind: 'foliage', color: P.fanLeaf, pattern: 'frond' });
   add('neonPink', { kind: 'neon', color: '#f8c9d8', emit: '#ff5fa8' });
   add('neonCyan', { kind: 'neon', color: '#cdf1f6', emit: '#54e8ff' });
   add('neonRed', { kind: 'neon', color: '#f6c6be', emit: '#ff4a3a' });
@@ -168,7 +172,7 @@ export function makeMaterials(rng) {
   add('whitewall', { color: '#f4f1e8' });
   add('plate', { color: '#2a4a8c' });
   add('meter', { kind: 'paint', color: '#aeb4bf' });
-  // Flowering shrubs.
+  // Flowering shrubs (planted only in looks that have flowers).
   add('bush', { kind: 'foliage', color: '#236c38' });
   add('bougainvillea', { color: '#e0287e' });
   add('bougainvilleaLight', { color: '#f45fa6' });

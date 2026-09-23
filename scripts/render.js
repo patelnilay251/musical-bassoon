@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Render one still of a place to PNG, with the visitor's traces for that hour.
 //   node scripts/render.js --place motel --view front --time 16.5 --w 1500 --h 1000 --ss 3 --rays --out still.png
+// --look pastel or cobalt (src/looks.js; cobalt by default).
 // Views: see VIEWS in each src/scenes/*.js (the house also has hero, sea,
 // terrace, aerial, drive and low).
 
@@ -11,6 +12,7 @@ import { propsAt } from '../src/visitor.js';
 import { Renderer, toRGBA } from '../src/render.js';
 import { fit } from '../src/camera.js';
 import { encodePNG } from '../src/png.js';
+import { LOOKS, DEFAULT_LOOK } from '../src/looks.js';
 
 const { values: a } = parseArgs({
   options: {
@@ -22,14 +24,16 @@ const { values: a } = parseArgs({
     ss: { type: 'string', default: '2' },
     shadow: { type: 'string', default: '4096' },
     rays: { type: 'boolean', default: false },
+    look: { type: 'string', default: DEFAULT_LOOK },
     out: { type: 'string', default: 'still.png' },
   },
 });
 
 if (!PLACES[a.place]) throw new Error(`no such place: ${a.place} (try ${Object.keys(PLACES).join(', ')})`);
+if (!LOOKS[a.look]) throw new Error(`no such look: ${a.look} (try ${Object.keys(LOOKS).join(', ')})`);
 const hours = Number(a.time);
 const t0 = performance.now();
-const world = buildPlace(a.place, propsAt(a.place, hours));
+const world = buildPlace(a.place, propsAt(a.place, hours), a.look);
 const t1 = performance.now();
 const view = world.views[a.view ?? world.hero];
 if (!view) throw new Error(`no view ${a.view} at ${a.place}: ${Object.keys(world.views).join(', ')}`);
@@ -40,5 +44,5 @@ r.setTime(hours);
 r.setCamera(fit(view, W / H), W, H, Number(a.ss));
 const img = r.render();
 const t2 = performance.now();
-writeFileSync(a.out, encodePNG(toRGBA(img, W, H), W, H));
+writeFileSync(a.out, encodePNG(toRGBA(img, W, H, undefined, 0, 0, W, H, r.look.grain), W, H));
 console.log(`${a.out}: ${world.mesh.count} triangles, world ${(t1 - t0).toFixed(0)} ms, render ${(t2 - t1).toFixed(0)} ms`);

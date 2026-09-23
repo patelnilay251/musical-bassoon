@@ -14,6 +14,7 @@ import { addLounger, addSideTable, addUmbrella, addFloat, addLadder, addDivingBo
 import { addCar } from './cars.js';
 import { ridge } from './common.js';
 import { plantBushes } from './plants.js';
+import { lookOf } from '../looks.js';
 
 export const DEFAULT_SEED = 1981;
 export const DECK = 0.15;
@@ -33,11 +34,14 @@ export const DEFAULT_PROPS = {
   float: 0.3, // 0..1 along its drift across the pool, or null
 };
 
-export function buildWorld(seed = DEFAULT_SEED, props = {}) {
+// `look`: which of the looks (looks.js) to build it for; the house is the
+// same house in each, give or take the flowers.
+export function buildWorld(seed = DEFAULT_SEED, props = {}, look) {
   const P = { ...DEFAULT_PROPS, ...props };
+  const L = lookOf(look);
   // Independent streams per subsystem: changing one never reshuffles another.
   const sub = (salt) => new Rng(hashInts(seed, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), L);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -99,9 +103,9 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
     z1: pz1,
     waterY: WATER,
     floorY: FLOOR,
-    tile: hex('#a6dcf2'),
+    tile: hex(L.pool.tile),
     lane: hex('#2a5d9c'),
-    water: hex('#1a82d2'),
+    water: hex(L.pool.water),
     glow: hex('#2fb8d6'),
     // Pool-sized ripples (wavelengths of one to two meters).
     waves: [
@@ -260,13 +264,15 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
 
   // Flowering bushes on the lawns either side of the deck, along the sea
   // wall, and by the drive: the hot pinks and reds of a garden by the sea.
-  const br = sub(7);
-  const offDeck = (x, z) => ok(x, z) && !(x > dx0 - 0.9 && x < dx1 + 0.9 && z > dz0 - 0.9 && z < dz1 + 0.9);
-  const bushes = [];
-  plantBushes(b, M, br.fork(1), [dx0 - 2, V.D + 3, PZ0 + 1.3, dz0 - 1.2], 4, { ok: offDeck, placed: bushes });
-  plantBushes(b, M, br.fork(2), [dx0 - 2, V.D + 3, dz1 + 1.2, PZ1 - 1.3], 4, { ok: offDeck, placed: bushes });
-  plantBushes(b, M, br.fork(3), [PX0 + 1.1, PX0 + 2.2, PZ0 + 2, PZ1 - 2], 3, { ok: offDeck, placed: bushes, kinds: ['bougainvillea', 'lantana'] });
-  plantBushes(b, M, br.fork(4), [V.D + 3, PX1 - 1.5, drive.z0 - 4, drive.z1 + 4], 2, { ok: offDeck, placed: bushes, kinds: ['hibiscus', 'oleander'] });
+  if (L.flowers) {
+    const br = sub(7);
+    const offDeck = (x, z) => ok(x, z) && !(x > dx0 - 0.9 && x < dx1 + 0.9 && z > dz0 - 0.9 && z < dz1 + 0.9);
+    const bushes = [];
+    plantBushes(b, M, br.fork(1), [dx0 - 2, V.D + 3, PZ0 + 1.3, dz0 - 1.2], 4, { ok: offDeck, placed: bushes });
+    plantBushes(b, M, br.fork(2), [dx0 - 2, V.D + 3, dz1 + 1.2, PZ1 - 1.3], 4, { ok: offDeck, placed: bushes });
+    plantBushes(b, M, br.fork(3), [PX0 + 1.1, PX0 + 2.2, PZ0 + 2, PZ1 - 2], 3, { ok: offDeck, placed: bushes, kinds: ['bougainvillea', 'lantana'] });
+    plantBushes(b, M, br.fork(4), [V.D + 3, PX1 - 1.5, drive.z0 - 4, drive.z1 + 4], 2, { ok: offDeck, placed: bushes, kinds: ['hibiscus', 'oleander'] });
+  }
 
   const mesh = finalizeMesh(b);
   return {
@@ -274,7 +280,8 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(6)),
+    look: L,
+    sky: makeSky(sub(6), { clouds: L.clouds.house }, L),
     pool,
     lights,
     shadowBox: { min: [PX0 - 1, -2, PZ0 - 1], max: [PX1 + 1, 16, PZ1 + 1] },

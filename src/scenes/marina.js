@@ -17,6 +17,7 @@ import { addSailboat, addMotorYacht, addLighthouse } from '../world/boats.js';
 import { neonWord } from '../world/signs.js';
 import { level } from '../camera.js';
 import { motion, phase } from '../world/motion.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Marina';
 // Compositions, the first one the place's hero.
@@ -30,10 +31,10 @@ const LH = { x: BW, z: 118 }; // lighthouse
 
 export const DEFAULT_PROPS = { car: true, sloop: 'in' };
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -202,7 +203,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(9), { clouds: [0, 2], gulls: [2, 6] }),
+    look,
+    sky: makeSky(sub(9), { clouds: look.clouds.marina, gulls: [2, 6] }, look),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {

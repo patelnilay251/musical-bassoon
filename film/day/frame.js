@@ -8,9 +8,9 @@ import { fit } from '../../src/camera.js';
 import { setMotion } from '../../src/world/motion.js';
 import { drawText } from './titles.js';
 
-function paint(sc, W, H, { ss, shadowSize, rays }) {
+function paint(sc, W, H, { ss, shadowSize, rays, look }) {
   setMotion(sc.motion.t, sc.motion.wind);
-  const world = buildPlace(sc.place, sc.props);
+  const world = buildPlace(sc.place, sc.props, look);
   setMotion(0, 0);
   sc.sky(world.sky);
   if (sc.power) world.emitScale = { ...world.emitScale, ...sc.power };
@@ -20,14 +20,14 @@ function paint(sc, W, H, { ss, shadowSize, rays }) {
   return r.render();
 }
 
-/** Frame `f` (from score.frame) as RGB24, W x H. */
-export function renderFrame(f, W, H, { ss = 2, shadowSize = 2048, rays = true, grain = 0.02, blur = true } = {}) {
+/** Frame `f` (from score.frame) as RGB24, W x H, in the given look. */
+export function renderFrame(f, W, H, { ss = 2, shadowSize = 2048, rays = true, grain = 0.02, blur = true, look } = {}) {
   const rgba = new Uint8ClampedArray(W * H * 4);
   if (f.scene) {
-    const img = paint(f.scene, W, H, { ss, shadowSize, rays });
+    const img = paint(f.scene, W, H, { ss, shadowSize, rays, look });
     if (blur && f.blur) {
       for (const sc of f.blur) {
-        const extra = paint(sc, W, H, { ss, shadowSize, rays });
+        const extra = paint(sc, W, H, { ss, shadowSize, rays, look });
         for (let i = 0; i < img.length; i++) img[i] += extra[i];
       }
       const k = 1 / (1 + f.blur.length);

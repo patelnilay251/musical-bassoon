@@ -17,6 +17,7 @@ import { hills, railing, lampPost } from '../world/common.js';
 import { addMotelSign, neonWord } from '../world/signs.js';
 import { addFlowerBush, plantBushes } from '../world/plants.js';
 import { level } from '../camera.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Motel';
 // Compositions, the first one the place's hero.
@@ -40,10 +41,10 @@ const FAR = 6000;
 const DOORS = ['doorRed', 'doorYellow', 'doorBlue', 'doorGreen', 'doorPink'];
 const VISITOR_ROOM = 7; // z 6..10, in front of the third stall
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -179,7 +180,7 @@ export function build(props = {}) {
   lights.push(lampPost(b, M, LX0 + 1.2, 30, 0, { height: 4.6, reach: 7 }));
 
   // ---- the pool, behind a low white wall
-  const pool = addPool(b, M, sub(3), lights);
+  const pool = addPool(b, M, sub(3), lights, look);
 
   // ---- the highway, sidewalks, and the sea wall across the road
   b.use(M.sidewalk, CAST);
@@ -219,23 +220,25 @@ export function build(props = {}) {
 
   // ---- flowers: a planter of bougainvillea along the pool wall where it
   // faces the lot, and a ring of them round the foot of the sign
-  const fr = sub(20);
-  b.use(M.curb, CAST);
-  b.box(-25.7, 0, -20.6, -24.25, 0.32, 0.4);
-  b.use(M.lawnTown, 0);
-  b.box(-25.6, 0.32, -20.5, -24.3, 0.34, 0.3, 'ny nx px pz nz');
-  plantBushes(b, M, fr.fork(1), [-25.2, -24.8, -20, -0.2], 6, { gap: 2.4, ground: () => 0.3, size: [0.75, 1.0], kinds: ['bougainvillea', 'bougainvillea', 'hibiscus'] });
-  b.use(M.curb, CAST);
-  b.push();
-  b.translate(sign.x, 0.15, sign.z);
-  b.cylinder(1.9, 1.9, 0, 0.36, 18);
-  b.pop();
-  for (let k = 0; k < 4; k++) {
-    const a = (k / 4) * Math.PI * 2 + 0.5;
+  if (look.flowers) {
+    const fr = sub(20);
+    b.use(M.curb, CAST);
+    b.box(-25.7, 0, -20.6, -24.25, 0.32, 0.4);
+    b.use(M.lawnTown, 0);
+    b.box(-25.6, 0.32, -20.5, -24.3, 0.34, 0.3, 'ny nx px pz nz');
+    plantBushes(b, M, fr.fork(1), [-25.2, -24.8, -20, -0.2], 6, { gap: 2.4, ground: () => 0.3, size: [0.75, 1.0], kinds: ['bougainvillea', 'bougainvillea', 'hibiscus'] });
+    b.use(M.curb, CAST);
     b.push();
-    b.translate(sign.x + Math.cos(a) * 1.25, 0.5, sign.z + Math.sin(a) * 1.25);
-    addFlowerBush(b, M, fr.fork(10 + k), { r: 0.62, h: 0.6, kind: k % 2 ? 'lantana' : 'bougainvillea' });
+    b.translate(sign.x, 0.15, sign.z);
+    b.cylinder(1.9, 1.9, 0, 0.36, 18);
     b.pop();
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + 0.5;
+      b.push();
+      b.translate(sign.x + Math.cos(a) * 1.25, 0.5, sign.z + Math.sin(a) * 1.25);
+      addFlowerBush(b, M, fr.fork(10 + k), { r: 0.62, h: 0.6, kind: k % 2 ? 'lantana' : 'bougainvillea' });
+      b.pop();
+    }
   }
 
   // ---- palms: a row of fan palms on each sidewalk, two coconuts by the pool
@@ -282,7 +285,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(6), { clouds: [0, 2], gulls: [1, 4] }),
+    look,
+    sky: makeSky(sub(6), { clouds: look.clouds.motel, gulls: [1, 4] }, look),
     seaLevel: SEA,
     pool,
     lights,
@@ -333,7 +337,7 @@ function pickets(b, M, x, y, z0, z1) {
   for (let z = z0 + 0.08; z < z1; z += 0.16) b.box(x - 0.015, y + 0.1, z - 0.015, x + 0.015, y + 0.96, z + 0.015, 'py ny');
 }
 
-function addPool(b, M, rng, lights) {
+function addPool(b, M, rng, lights, look) {
   const DECK = 0.15;
   const px0 = -20.5;
   const px1 = -11.5;
@@ -399,9 +403,9 @@ function addPool(b, M, rng, lights) {
     z1: pz1,
     waterY: WATER,
     floorY: FLOOR,
-    tile: hex('#a6dcf2'),
+    tile: hex(look.pool.tile),
     lane: hex('#2a5d9c'),
-    water: hex('#1a82d2'),
+    water: hex(look.pool.water),
     glow: hex('#2fb8d6'),
     waves: [
       { kx: 3.1, kz: 0.9, w: 1.0, p: rng.range(0, 6.28), a: 0.012 },

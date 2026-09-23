@@ -13,6 +13,8 @@ export const TITLE = 'Paloma Bay, the attract mode';
 export const OUT = 'docs/film/paloma-bay.mp4';
 export const PAGE = { from: 'web/film.html', to: 'docs/film.html', poster: 'docs/film/poster.png', at: 3 };
 export const ENCODE = { crf: 20, preset: 'slow', tune: 'animation' };
+// The look it was painted in (src/looks.js); --look paints it in another.
+export const LOOK = 'pastel';
 export const DRAFT = { crf: 26, preset: 'veryfast', tune: 'animation' };
 
 // Four times the board's 384x216 by default: each board pixel then fills
@@ -27,6 +29,7 @@ export function size(opts = {}) {
 // Frame i as RGB24 at the output size.
 export function render(i, opts = {}) {
   const k = factor(opts);
-  const img = renderFrame(frame(i), opts.draft ? { ss: 1, shadowSize: 1024 } : { ss: 2, shadowSize: 2048 });
+  const q = opts.draft ? { ss: 1, shadowSize: 1024 } : { ss: 2, shadowSize: 2048 };
+  const img = renderFrame(frame(i), { ...q, look: opts.look ?? LOOK });
   return enlarge(img, W, H, k, new Uint8Array(W * k * H * k * 3), { scan: opts.scan ?? 0.24 });
 }

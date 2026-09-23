@@ -8,6 +8,7 @@ import { level, fit } from '../src/camera.js';
 import { DEG, mat4LookAt, mat4Perspective, mat4Mul } from '../src/math.js';
 import { glyphs } from '../src/world/font.js';
 import { createService } from '../web/service.js';
+import { LOOK_NAMES } from '../src/looks.js';
 
 function checksum(mesh) {
   let s = 0;
@@ -152,6 +153,24 @@ test('the sign painter knows every letter the town uses', () => {
   for (const w of words) for (const ch of w.replace(/ /g, '')) assert.ok(glyphs.includes(ch), `no glyph for ${ch}`);
 });
 
+test('the looks paint the same town: the places and views agree, only cobalt has flowers', () => {
+  for (const id of ORDER) {
+    const [pastel, cobalt] = ['pastel', 'cobalt'].map((look) => buildPlace(id, propsAt(id, 12), look));
+    assert.equal(pastel.look.name, 'pastel');
+    assert.equal(cobalt.look.name, 'cobalt');
+    assert.deepEqual(pastel.views, cobalt.views, `${id}: the views moved`);
+    assert.deepEqual(pastel.shadowBox, cobalt.shadowBox, id);
+    const bushes = (w) => w.mesh.mat.filter((m) => w.materials[m].name === 'bush').length;
+    assert.equal(bushes(pastel), 0, `${id}: flowers in pastel`);
+    if (id !== 'marina') assert.ok(bushes(cobalt) > 0, `${id}: no flowers in cobalt`);
+    // Without the flowers, everything else is the same geometry.
+    if (id === 'marina') assert.equal(checksum(pastel.mesh), checksum(cobalt.mesh), 'marina: the looks built different boats');
+    const color = (w) => w.materials.find((m) => m.name === 'sidewalk').color;
+    assert.notEqual(color(pastel), color(cobalt), `${id}: the looks share every color`);
+  }
+  assert.deepEqual(LOOK_NAMES, ['pastel', 'cobalt']);
+});
+
 test('the render service paints every tile of a frame, and a newer frame wins', async () => {
   const got = [];
   let resolve;
@@ -183,4 +202,18 @@ test('the render service paints every tile of a frame, and a newer frame wins', 
   const tiles = got.filter((m) => m.type === 'tile');
   assert.equal(tiles.length, 2);
   assert.ok(tiles.every((t) => t.job === 2 && t.data.length === 32 * 40 * 3 && t.data.every(Number.isFinite)));
+});
+
+test('the render service paints in the look it is asked for', async () => {
+  const paint = (look) =>
+    new Promise((resolve) => {
+      const tiles = [];
+      const handle = createService((m) => {
+        if (m.type === 'tile') tiles.push(m.data);
+        if (m.type === 'done') resolve(tiles[0]);
+      });
+      handle({ type: 'frame', job: 1, place: 'motel', view: 'front', look, props: propsAt('motel', 13), hours: 13, W: 32, H: 20, ss: 1, shadowSize: 256, reflScale: 0.5, tiles: [[0, 0, 32, 20]] });
+    });
+  const [pastel, cobalt] = await Promise.all([paint('pastel'), paint('cobalt')]);
+  assert.ok(pastel.some((v, i) => Math.abs(v - cobalt[i]) > 0.02));
 });

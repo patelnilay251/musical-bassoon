@@ -18,6 +18,7 @@ import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFo
 import { level } from '../camera.js';
 import { addFlowerBush } from '../world/plants.js';
 import { motion } from '../world/motion.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Beach';
 // Compositions, the first one the place's hero.
@@ -35,10 +36,10 @@ export const DEFAULT_PROPS = { car: true, towel: true, umbrella: 'open', board: 
 
 const sandY = (x) => x * SLOPE;
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -116,7 +117,7 @@ export function build(props = {}) {
     });
     palms.push({ ...info });
     // Every other palm has a flowering bush at its foot.
-    if (palms.length % 2 === 0) {
+    if (look.flowers && palms.length % 2 === 0) {
       b.push();
       b.translate(WALL + 3.6 + r.range(-0.3, 0.3), PROM, z + r.range(1.4, 2.2));
       addFlowerBush(b, M, sub(20).fork(palms.length), { r: r.range(0.75, 1.0), h: 0.8, kind: r.pick(['bougainvillea', 'hibiscus', 'oleander']) });
@@ -234,7 +235,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(10), { clouds: [1, 2], gulls: [2, 5] }),
+    look,
+    sky: makeSky(sub(10), { clouds: look.clouds.beach, gulls: [2, 5] }, look),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {

@@ -11,15 +11,16 @@ import { setMotion } from '../../src/world/motion.js';
 import { quantize } from '../../src/retro.js';
 import * as S from './screen.js';
 
-export const LOOK = { bits: 3, dither: 0.7 };
+// The board's palette: three bits a channel, dithered.
+export const BOARD = { bits: 3, dither: 0.7 };
 
-export function renderFrame(f, { ss = 2, shadowSize = 2048 } = {}) {
+export function renderFrame(f, { ss = 2, shadowSize = 2048, look } = {}) {
   const { W, H } = S;
   let img;
   if (f.scene) {
     const sc = f.scene;
     setMotion(sc.motion.t, sc.motion.wind);
-    const world = buildPlace(sc.place, sc.props);
+    const world = buildPlace(sc.place, sc.props, look);
     setMotion(0, 0);
     sc.sky(world.sky);
     if (sc.power) world.emitScale = { ...world.emitScale, ...sc.power };
@@ -33,7 +34,7 @@ export function renderFrame(f, { ss = 2, shadowSize = 2048 } = {}) {
   }
   S.fade(img, f.fade);
   S.whiten(img, f.flash);
-  quantize(img, W, H, LOOK);
+  quantize(img, W, H, BOARD);
   if (f.mosaic > 1) S.mosaic(img, W, H, f.mosaic);
   f.overlay(img);
   return img;

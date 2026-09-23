@@ -6,6 +6,7 @@ import { ScreenTris, projectPerspective, projectOrtho, rasterize } from './raste
 import { BVH } from './bvh.js';
 import { CAST, DOUBLE, SMOOTH, UNDERWATER, NOREFLECT, DISTANT } from './mesh.js';
 import { skyState, skyColor, seaColor, SEA_LEVEL } from './sky.js';
+import { LOOKS, DEFAULT_LOOK, lookOf } from './looks.js';
 import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul, rgbToHsv, hsvToRgb } from './math.js';
 
 export const KIND = {
@@ -43,10 +44,10 @@ const T = new Float64Array(3);
 const SH = new Float64Array(3);
 
 // A painter's shadow of local color c under the shade tone A, written to
-// out[o..o+2]. Whites and grays take the sky's tone; colored surfaces keep
-// their own hue, deeper, richer and turned a little toward the sky's, the
-// way a painter mixes a shadow instead of graying it (a pink wall goes
-// coral in shade, not mauve).
+// out[o..o+2], for looks that mix their shade ('painted'). Whites and
+// grays take the sky's tone; colored surfaces keep their own hue, deeper,
+// richer and turned a little toward the sky's, the way a painter mixes a
+// shadow instead of graying it (a pink wall goes coral in shade, not mauve).
 function paintShade(c, A, out, o) {
   const [hc, sc, vc] = rgbToHsv(c[0], c[1], c[2]);
   const [ha, , va] = rgbToHsv(A[0], A[1], A[2]);
@@ -66,6 +67,9 @@ export class Renderer {
   // (ripples blur it anyway, so interactive use can go lower).
   constructor(world, { shadowSize = 4096, shadowRays = false, reflScale = 1 } = {}) {
     this.world = world;
+    // How to paint it: the look the place was built in (looks.js).
+    this.look = lookOf(world.look);
+    this.painted = this.look.shade === 'painted';
     const mesh = (this.mesh = world.mesh);
     const mats = world.materials;
     const nm = mats.length;
@@ -136,7 +140,7 @@ export class Renderer {
     this.ripple_t = t ?? hours * 0.35;
     if (this.hours === hours && this.S) return;
     this.hours = hours;
-    this.S = skyState(hours, this.world.sky || { clouds: this.world.clouds });
+    this.S = skyState(hours, this.world.sky || { clouds: this.world.clouds }, this.look);
     this.computeTriColors();
     this.shadowValid = false;
     this.reflValid = false;
@@ -172,13 +176,13 @@ export class Renderer {
   // Flat faces have one lit tone and one shaded tone for the whole moment:
   // compute both up front, per triangle.
   computeTriColors() {
-    const { mesh, S } = this;
+    const { mesh, S, painted } = this;
     const { fn, mat, count } = mesh;
     const [lx, ly, lz] = S.keyDir;
     const [kr, kg, kb] = S.key;
     const [ar, ag, ab] = S.amb;
     const [gr, gg, gb] = S.ground;
-    this.computeShades();
+    if (painted) this.computeShades();
     for (let t = 0; t < count; t++) {
       const m = mat[t];
       const nx = fn[t * 3];
@@ -196,13 +200,22 @@ export class Renderer {
       const cr = this.mCol[m * 3];
       const cg = this.mCol[m * 3 + 1];
       const cb = this.mCol[m * 3 + 2];
-      this.shadeAt(m, ny, SH);
-      this.triShade[t * 3] = SH[0];
-      this.triShade[t * 3 + 1] = SH[1];
-      this.triShade[t * 3 + 2] = SH[2];
-      this.triLit[t * 3] = SH[0] + (cr * (ambR + kr) - SH[0]) * lit;
-      this.triLit[t * 3 + 1] = SH[1] + (cg * (ambG + kg) - SH[1]) * lit;
-      this.triLit[t * 3 + 2] = SH[2] + (cb * (ambB + kb) - SH[2]) * lit;
+      if (painted) {
+        this.shadeAt(m, ny, SH);
+        this.triShade[t * 3] = SH[0];
+        this.triShade[t * 3 + 1] = SH[1];
+        this.triShade[t * 3 + 2] = SH[2];
+        this.triLit[t * 3] = SH[0] + (cr * (ambR + kr) - SH[0]) * lit;
+        this.triLit[t * 3 + 1] = SH[1] + (cg * (ambG + kg) - SH[1]) * lit;
+        this.triLit[t * 3 + 2] = SH[2] + (cb * (ambB + kb) - SH[2]) * lit;
+      } else {
+        this.triShade[t * 3] = cr * ambR;
+        this.triShade[t * 3 + 1] = cg * ambG;
+        this.triShade[t * 3 + 2] = cb * ambB;
+        this.triLit[t * 3] = cr * (ambR + kr * lit);
+        this.triLit[t * 3 + 1] = cg * (ambG + kg * lit);
+        this.triLit[t * 3 + 2] = cb * (ambB + kb * lit);
+      }
       this.triNdl[t] = ndl;
     }
   }
@@ -665,10 +678,16 @@ export class Renderer {
         lit = smoothstep(-0.08, 0.42, ndl);
         if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
         const sheen = ndl > 0.7 ? 0.07 * smoothstep(0.7, 0.95, ndl) * lit : 0;
-        this.shadeAt(m, ny, SH);
-        r = SH[0] + (cr * (ar + kr * 0.95) - SH[0]) * lit + sheen;
-        g = SH[1] + (cg * (ag + kg * 0.95) - SH[1]) * lit + sheen;
-        b = SH[2] + (cb * (ab + kb * 0.95) - SH[2]) * lit + sheen;
+        if (this.painted) {
+          this.shadeAt(m, ny, SH);
+          r = SH[0] + (cr * (ar + kr * 0.95) - SH[0]) * lit + sheen;
+          g = SH[1] + (cg * (ag + kg * 0.95) - SH[1]) * lit + sheen;
+          b = SH[2] + (cb * (ab + kb * 0.95) - SH[2]) * lit + sheen;
+        } else {
+          r = cr * (ar + kr * lit * 0.95) + sheen;
+          g = cg * (ag + kg * lit * 0.95) + sheen;
+          b = cb * (ab + kb * lit * 0.95) + sheen;
+        }
       }
       if (pat !== PATTERN.none) {
         const f = this.pattern(pat, m, px, py, pz, u, v, dist, dx, dy, dz);
@@ -714,32 +733,45 @@ export class Renderer {
       if (ndl > 0) {
         const vis = this.shadow(px, py, pz, nx, ny, nz);
         const lit = (ndl > 0.4 ? 1 : 0.8) * vis;
-        // Foliage is painted as dark masses with the sunlit leaves picked
-        // out bright: its shade is much deeper than a wall's.
-        this.shadeAt(m, ny, SH);
-        SH[0] *= 0.38;
-        SH[1] *= 0.38;
-        SH[2] *= 0.42;
-        r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
-        g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
-        b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+        if (this.painted) {
+          // Foliage is painted as dark masses with the sunlit leaves picked
+          // out bright: its shade is much deeper than a wall's.
+          this.shadeAt(m, ny, SH);
+          SH[0] *= 0.38;
+          SH[1] *= 0.38;
+          SH[2] *= 0.42;
+          r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+          g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+          b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+        } else {
+          r = cr * (ar + kr * lit);
+          g = cg * (ag + kg * lit);
+          b = cb * (ab + kb * lit);
+        }
       } else {
         // Seen from the dark side, a leaf glows faintly yellow-green.
         const vis = this.shadow(px, py, pz, -nx, -ny, -nz);
         const k = 0.24 * vis;
-        this.shadeAt(m, -ny, SH);
-        SH[0] *= 0.38;
-        SH[1] *= 0.38;
-        SH[2] *= 0.42;
-        r = SH[0] + (cr * (ar + kr * 1.1) - SH[0]) * k;
-        g = SH[1] + (cg * (ag + kg * 1.15) - SH[1]) * k;
-        b = SH[2] + (cb * (ab + kb * 0.6) - SH[2]) * k;
+        if (this.painted) {
+          this.shadeAt(m, -ny, SH);
+          SH[0] *= 0.38;
+          SH[1] *= 0.38;
+          SH[2] *= 0.42;
+          r = SH[0] + (cr * (ar + kr * 1.1) - SH[0]) * k;
+          g = SH[1] + (cg * (ag + kg * 1.15) - SH[1]) * k;
+          b = SH[2] + (cb * (ab + kb * 0.6) - SH[2]) * k;
+        } else {
+          r = cr * (ar + kr * k * 1.1);
+          g = cg * (ag + kg * k * 1.15);
+          b = cb * (ab + kb * k * 0.6);
+        }
       }
       if (pat === PATTERN.frond) {
-        // Deep at the crown and bright, yellowing, toward the tips, the
-        // two-tone way palms are painted.
-        const f = 0.45 + 0.72 * u + 0.1 * v;
-        r *= f * (0.86 + 0.34 * u);
+        // Deep at the crown, lighter and warmer toward the tips of the
+        // leaves: in cobalt the two-tone way palms are painted.
+        const F = this.look.frond;
+        const f = F.base + F.tip * u + F.across * v;
+        r *= f * (F.warm + F.warmTip * u);
         g *= f;
         b *= f * (1.02 - 0.08 * u);
       }
@@ -783,10 +815,16 @@ export class Renderer {
       const ndl = nx * lx + ny * ly + nz * lz;
       let lit = smoothstep(0.0, 0.35, ndl);
       if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
-      this.shadeAt(m, ny, SH);
-      r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
-      g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
-      b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+      if (this.painted) {
+        this.shadeAt(m, ny, SH);
+        r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+        g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+        b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+      } else {
+        r = cr * (ar + kr * lit);
+        g = cg * (ag + kg * lit);
+        b = cb * (ab + kb * lit);
+      }
       const c = -(nx * dx + ny * dy + nz * dz);
       const fres = 0.06 + 0.5 * Math.pow(1 - Math.max(0, c), 4);
       const rx = dx + 2 * c * nx;
@@ -811,10 +849,16 @@ export class Renderer {
     } else if (kind === KIND.lamp || kind === KIND.neon) {
       const ndl = nx * lx + ny * ly + nz * lz;
       const lit = ndl > 0 ? (0.6 + 0.4 * ndl) * this.shadow(px, py, pz, nx, ny, nz) : 0;
-      this.shadeAt(m, ny, SH);
-      r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
-      g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
-      b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+      if (this.painted) {
+        this.shadeAt(m, ny, SH);
+        r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+        g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+        b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
+      } else {
+        r = cr * (ar + kr * lit);
+        g = cg * (ag + kg * lit);
+        b = cb * (ab + kb * lit);
+      }
       // Neon burns past white so the glow pass picks it up.
       const kE = this.mEmitK[m];
       const on = S.lights * (kind === KIND.neon ? 1.9 : 1.15) * kE;
@@ -857,10 +901,11 @@ export class Renderer {
     }
 
     // Aerial perspective: distance lays a veil of horizon color over things,
-    // gently near, heavily for far scenery.
+    // gently near, heavily for far scenery; how much is the look's.
     if (dist > 30) {
       skyColor(S, dx, 0.0001, dz, T, false);
-      const k = flags & DISTANT ? 1 - Math.exp(-dist / 5200) : 0.05 * smoothstep(60, 400, dist) + (1 - 0.05) * (1 - Math.exp(-Math.max(0, dist - 400) / 9000));
+      const Z = this.look.haze;
+      const k = flags & DISTANT ? 1 - Math.exp(-dist / Z.far) : Z.near * smoothstep(Z.from, Z.to, dist) + (1 - Z.near) * (1 - Math.exp(-Math.max(0, dist - Z.to) / Z.depth));
       r += (T[0] - r) * k;
       g += (T[1] - g) * k;
       b += (T[2] - b) * k;
@@ -1197,13 +1242,16 @@ export class Renderer {
     let wr2 = ir + (rr - ir) * fres;
     let wg2 = ig + (rg - ig) * fres;
     let wb2 = ib + (rb - ib) * fres;
-    // The sun on the ripples, as painters dab it: a mosaic of small bright
-    // flecks, squashed flat by the distance.
-    const fl = this.flecks(px, pz, tm, dist, dy) * (S.keyOn ? 0.85 : 0.25 + 0.35 * S.lights);
-    wr2 += (0.9 - wr2) * fl;
-    wg2 += (0.97 - wg2) * fl;
-    wb2 += (1.02 - wb2) * fl;
-    this.paintWater(wr2, wg2, wb2, dist, 0.45, out);
+    const P = this.look.pool;
+    if (P.flecks) {
+      // The sun on the ripples, as painters dab it: a mosaic of small
+      // bright flecks, squashed flat by the distance.
+      const fl = this.flecks(px, pz, tm, dist, dy) * (S.keyOn ? 0.85 : 0.25 + 0.35 * S.lights);
+      wr2 += (0.9 - wr2) * fl;
+      wg2 += (0.97 - wg2) * fl;
+      wb2 += (1.02 - wb2) * fl;
+    }
+    this.paintWater(wr2, wg2, wb2, dist, P.strokes, out);
   }
 
   // Coverage of the pool's flecks at (px, pz): an ellipse jittered into
@@ -1391,8 +1439,9 @@ function shoulder(x) {
  * Float RGB -> RGBA8, optionally just for the rect [x0, x1) x [y0, y1).
  * A fine, fixed grain stands in for the tooth of acrylic sprayed on board;
  * it is strongest in the midtones so whites stay clean. It also dithers.
+ * How much grain is the look's: pass `renderer.look.grain`.
  */
-export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H, grain = 0.006) {
+export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H, grain = LOOKS[DEFAULT_LOOK].grain) {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = y * W + x;

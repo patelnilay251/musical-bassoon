@@ -1,8 +1,8 @@
 // The render service: builds places and paints tiles of frames. It runs in
 // a Web Worker (see worker.js) or, where workers are unavailable, on the
 // page itself, one tile per task. Messages in:
-//   { type: 'frame', job, place, props, hours, view (a name), W, H, ss,
-//     shadowSize, reflScale, tiles: [[x0, y0, x1, y1], ...] }
+//   { type: 'frame', job, place, look, props, hours, view (a name), W, H,
+//     ss, shadowSize, reflScale, tiles: [[x0, y0, x1, y1], ...] }
 //   { type: 'cancel' }
 // Messages out: { type: 'tile', job, rect, data: Float32Array RGB } and
 // { type: 'done', job }. A newer frame always replaces an older one.
@@ -26,10 +26,10 @@ export function createService(post) {
   };
 
   function setup(m) {
-    const key = `${m.place}|${JSON.stringify(m.props)}`;
+    const key = `${m.place}|${m.look}|${JSON.stringify(m.props)}`;
     if (!world || world.key !== key) {
       world = null; // let the old one go before building the next
-      const w = buildPlace(m.place, m.props);
+      const w = buildPlace(m.place, m.props, m.look);
       world = { key, world: w, r: new Renderer(w, { shadowSize: m.shadowSize, reflScale: m.reflScale }) };
     }
     const r = world.r;
