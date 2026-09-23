@@ -108,5 +108,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag=render-${{ needs.plan.outputs.film }}-${{ needs.plan.outputs.quality }}
-          gh release view "$tag" > /dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.sha }}" --title "Render: ${{ needs.plan.outputs.film }} (${{ needs.plan.outputs.quality }})" --notes "Rendered by the render workflow. Replaced on every run."
+          # The tag goes on the branch as it stands: the token may not tag a
+          # commit whose workflow files differ from its branch's.
+          gh release view "$tag" > /dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.ref_name }}" --title "Render: ${{ needs.plan.outputs.film }} (${{ needs.plan.outputs.quality }})" --notes "Rendered by the render workflow. Replaced on every run."
           gh release upload "$tag" out/*.mp4 --clobber
