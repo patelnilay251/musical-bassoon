@@ -432,7 +432,8 @@ export function rocks(seconds, seed, waves) {
   const r = rng(seed + 1);
   for (const [tw, a] of waves) {
     const lp = new SVF(120, 1.1);
-    const hp = new SVF(2500, 0.7);
+    const hp = new SVF(2200, 0.7);
+    const soft = new SVF(6000, 0.7); // spray hisses; it doesn't sizzle
     const bp = new SVF(700, 3);
     const o = Math.round(tw * RATE);
     let ph = 0;
@@ -447,7 +448,8 @@ export function rocks(seconds, seed, waves) {
       if (j % 64 === 0) bp.set(500 + 600 * r(), 3);
       bp.tick(x);
       const boom = (Math.sin(ph) * 0.8 + lp.lp * 2) * Math.min(1, t / 0.02) * Math.exp(-t / 0.35);
-      const spray = hp.hp * Math.min(1, Math.max(0, (t - 0.05) / 0.1)) * Math.exp(-Math.max(0, t - 0.15) / 0.6) * 0.6;
+      soft.tick(hp.hp);
+      const spray = soft.lp * Math.min(1, Math.max(0, (t - 0.05) / 0.1)) * Math.exp(-Math.max(0, t - 0.15) / 0.6) * 0.45;
       const drain = t > 0.8 ? bp.bp * 0.3 * Math.max(0, Math.sin((Math.PI * (t - 0.8)) / 3)) : 0;
       out[i] += (boom + spray + drain) * a;
       ph += (TAU * (55 + 20 * Math.exp(-t / 0.1))) / RATE;

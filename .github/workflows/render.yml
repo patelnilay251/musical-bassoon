@@ -2,7 +2,9 @@
 # render/request.json starts it. The film is cut into slices rendered at
 # the same time on as many runners, then joined, given its soundtrack,
 # and posted to a pre-release named after the film (and kept as an
-# artifact for a few days).
+# artifact for a few days). With "reuse" set to an earlier run's id, the
+# slices from that run are joined again under the current soundtrack,
+# without rendering anything.
 
 name: render
 
@@ -13,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: render-${{ github.ref }}
@@ -26,6 +29,7 @@ jobs:
       quality: ${{ steps.req.outputs.quality }}
       slices: ${{ steps.req.outputs.slices }}
       matrix: ${{ steps.req.outputs.matrix }}
+      reuse: ${{ steps.req.outputs.reuse }}
     steps:
       - uses: actions/checkout@v4
       - id: req
@@ -38,6 +42,7 @@ jobs:
               "quality=" + (r.quality ?? "final"),
               "slices=" + n,
               "matrix=" + JSON.stringify([...Array(n).keys()]),
+              "reuse=" + (r.reuse ?? ""),
             ];
             console.log(out.join("\n"));
           ' >> "$GITHUB_OUTPUT"
@@ -45,6 +50,7 @@ jobs:
 
   render:
     needs: plan
+    if: needs.plan.outputs.reuse == ''
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -72,6 +78,7 @@ jobs:
 
   join:
     needs: [plan, render]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.render.result == 'success' || needs.render.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +92,8 @@ jobs:
           pattern: slice-*
           path: slices
           merge-multiple: true
+          run-id: ${{ needs.plan.outputs.reuse || github.run_id }}
+          github-token: ${{ github.token }}
       - name: join and add the soundtrack
         run: |
           ls -la slices

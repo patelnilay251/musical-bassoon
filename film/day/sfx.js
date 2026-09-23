@@ -110,7 +110,7 @@ export function effects(film) {
     for (const t of [3.1, 7.6, 12.9]) mix.add(FX.click(0.22, 5200 + t * 100), t, { gain: 0.3, pan: signPan, reverb: 0.15 });
     mix.add(FX.click(0.5, 1300), off, { gain: 0.3, pan: -0.3, reverb: 0.35 });
     bed(mix, sh, (D) => FX.surf(D, 2, [[2.5, 0.1, 0.1], [9.5, 0.12, 0.1], [15.5, 0.1, 0.1]], { floor: 0.035 }), { gain: 0.4, pan: 0, reverb: 0.25 });
-    mix.add(FX.farTruck(10, 3, (t) => smooth(0, 3, t) * (1 - smooth(3.5, 10, t))), 0, { gain: 0.5, pan: (t) => -0.2 - 0.5 * smooth(0, 10, t), reverb: 0.3 });
+    mix.add(FX.farTruck(10, 3, (t) => smooth(0, 3, t) * (1 - smooth(3.5, 10, t))), 0, { gain: 0.15, pan: (t) => -0.2 - 0.5 * smooth(0, 10, t), reverb: 0.3 });
     mix.add(FX.iceMachine(4), 9.3, { gain: 0.2, pan: 0.85, reverb: 0.2 });
   }
 
