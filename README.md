@@ -58,11 +58,13 @@ The town, filmed as the arcade game its summer would have had, playing itself be
 
 The first version rendered a resort. This one tries to paint a town, the way an illustrator with an airbrush would:
 
-- **Light is chosen, not simulated.** Each moment of the day names a light tone and a shade tone, keyed to the sun's elevation. Planes take one of three lit values (full, oblique, grazing) instead of a continuous falloff. Walls are airbrushed lighter toward the top in sun and warmer near the ground in shade, and curved forms get a soft terminator and a sprayed sheen. Shadows are a change of hue, periwinkle and violet, not a loss of it.
-- **Skies are sprayed in layers:** an ultramarine ground, white mist from the horizon, blue laid back over it and deepening toward the top of the frame, and never quite even. Cumulus clouds live on the sky dome as crowns of puffs in paint order, lit as one airbrushed form with a flat, shaded base.
-- **Glass and water are painted the way painters paint them.** Windows get deep blue at the foot of each floor, lifting toward the sky's color, with diagonal bands of reflected light. Water mirrors the world through a second camera, then gets marbled bands and broken white crest lines. Beaches fade from aqua over the sand to deep blue offshore, with foam drawn as tapered strokes.
+- **Light is chosen, not simulated.** Each moment of the day names a light tone and a shade tone, keyed to the sun's elevation. Planes take one of three lit values (full, oblique, grazing) instead of a continuous falloff, and curved forms get a soft terminator and a sprayed sheen.
+- **Shade is mixed, not grayed.** In shadow a color keeps its own hue, deeper and richer: a pink wall goes coral, a lawn deep green. Only whites and grays take the sky's cerulean. Shadows cast on the ground are deeper than walls in shade. Foliage is painted as dark masses with the sunlit leaves picked out bright, and palm fronds darken toward the crown and brighten toward their tips.
+- **Skies are a deep cobalt** that stays saturated right down to the horizon, lightening only toward cerulean, sprayed smooth. There is no white haze, and clouds are rare: a place has two at most, low on the horizon, as crowns of puffs lit as one airbrushed form. Thin streaks appear only when the sun is low. Nights are a luminous royal blue, not black.
+- **Glass and water are painted the way painters paint them.** Windows get deep blue at the foot of each floor, lifting toward the sky's color, with diagonal bands of reflected light. Water mirrors the world through a second camera, then gets marbled bands and broken white crest lines. Pools are azure, and the sun on their ripples is dabbed on as a mosaic of small bright flecks. Beaches fade from aqua over the sand to deep blue offshore, with foam drawn as tapered strokes.
+- **Hot color where the picture needs it.** Bougainvillea, hibiscus, oleander and lantana grow along the pool walls, around the foot of the motel sign, in planters on the boulevard and at the feet of the promenade palms (`src/world/plants.js`). They are dark green mounds studded with blossoms. Decks and sidewalks are a warm pink-cream.
 - **Verticals stay vertical.** Every composition is built level, like a view camera, and a lens shift puts the horizon where the picture wants it (`src/camera.js`). Taller screens keep the width of the view and gain sky. Long lenses flatten the perspective.
-- **Finish:** neon and lamps burn past white, and a glow pass lets them bleed. A fine grain, strongest in the midtones, stands in for the tooth of acrylic on board.
+- **Finish:** neon and lamps burn past white, and a glow pass lets them bleed. Distant things stay crisp, with only a faint veil of air. A faint dither keeps the deep gradients from banding, with no visible grain: acrylic sprayed smooth.
 
 ## How it works
 
@@ -106,7 +108,7 @@ Films are streamed frame by frame, in order, into ffmpeg (on the `PATH`, or name
 
 ## Notes
 
-- The style is an homage. No artwork was copied or used as input; the look comes from rules written in code.
+- The style is an homage. No artwork was copied or used as input to the program; the look comes from rules written in code. The palette and those rules were tuned by studying published record covers next to our own pictures and measuring the difference (sky gradients, saturation, the color of shade).
 - Geometry ranges from about 35,000 triangles (the house) to 218,000 (the boulevard, which has 128 palms, a parking meter for every space and a dozen cars on it).
 - The film's game, its company and its copyright line are fictional.
 - `PHILOSOPHY.md` is the brief the engine was built against.

@@ -202,7 +202,7 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(9), { clouds: [3, 5], gulls: [2, 6] }),
+    sky: makeSky(sub(9), { clouds: [0, 2], gulls: [2, 6] }),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {

@@ -16,6 +16,7 @@ import { addUmbrella } from '../world/props.js';
 import { hills, railing, lampPost } from '../world/common.js';
 import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFoam, addBreakers, addFootprints } from '../world/shore.js';
 import { level } from '../camera.js';
+import { addFlowerBush } from '../world/plants.js';
 import { motion } from '../world/motion.js';
 
 export const NAME = 'The Beach';
@@ -114,6 +115,13 @@ export function build(props = {}) {
       height: pr.range(8.5, 12),
     });
     palms.push({ ...info });
+    // Every other palm has a flowering bush at its foot.
+    if (palms.length % 2 === 0) {
+      b.push();
+      b.translate(WALL + 3.6 + r.range(-0.3, 0.3), PROM, z + r.range(1.4, 2.2));
+      addFlowerBush(b, M, sub(20).fork(palms.length), { r: r.range(0.75, 1.0), h: 0.8, kind: r.pick(['bougainvillea', 'hibiscus', 'oleander']) });
+      b.pop();
+    }
   }
   for (let z = -60; z < 140; z += 26) lights.push(lampPost(b, M, WALL + 1.2, z, PROM, { height: 4.2, reach: 6 }));
   // Beach houses across the street, in the town's pastels.
@@ -226,7 +234,7 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(10), { clouds: [4, 6], gulls: [2, 5] }),
+    sky: makeSky(sub(10), { clouds: [1, 2], gulls: [2, 5] }),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {

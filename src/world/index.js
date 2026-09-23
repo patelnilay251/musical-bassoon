@@ -13,6 +13,7 @@ import { addPalm } from './palm.js';
 import { addLounger, addSideTable, addUmbrella, addFloat, addLadder, addDivingBoard, addLamp } from './props.js';
 import { addCar } from './cars.js';
 import { ridge } from './common.js';
+import { plantBushes } from './plants.js';
 
 export const DEFAULT_SEED = 1981;
 export const DECK = 0.15;
@@ -98,9 +99,9 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
     z1: pz1,
     waterY: WATER,
     floorY: FLOOR,
-    tile: hex('#c4f0f2'),
+    tile: hex('#a6dcf2'),
     lane: hex('#2a5d9c'),
-    water: hex('#12a4d4'),
+    water: hex('#1a82d2'),
     glow: hex('#2fb8d6'),
     // Pool-sized ripples (wavelengths of one to two meters).
     waves: [
@@ -256,6 +257,16 @@ export function buildWorld(seed = DEFAULT_SEED, props = {}) {
   plant(lr, [0, V.D + 5, V.z1 + 2, PZ1 - 2.5], lr.int(1, 2), () => Math.PI / 2);
   plant(lr, [V.D + 3, PX1 - 2, drive.z1 + 1.3, drive.z1 + 3.5], lr.int(2, 3), () => lr.range(0, 6.28));
   plant(lr, [V.D + 3, PX1 - 2, drive.z0 - 3.5, drive.z0 - 1.3], lr.int(1, 2), () => lr.range(0, 6.28));
+
+  // Flowering bushes on the lawns either side of the deck, along the sea
+  // wall, and by the drive: the hot pinks and reds of a garden by the sea.
+  const br = sub(7);
+  const offDeck = (x, z) => ok(x, z) && !(x > dx0 - 0.9 && x < dx1 + 0.9 && z > dz0 - 0.9 && z < dz1 + 0.9);
+  const bushes = [];
+  plantBushes(b, M, br.fork(1), [dx0 - 2, V.D + 3, PZ0 + 1.3, dz0 - 1.2], 4, { ok: offDeck, placed: bushes });
+  plantBushes(b, M, br.fork(2), [dx0 - 2, V.D + 3, dz1 + 1.2, PZ1 - 1.3], 4, { ok: offDeck, placed: bushes });
+  plantBushes(b, M, br.fork(3), [PX0 + 1.1, PX0 + 2.2, PZ0 + 2, PZ1 - 2], 3, { ok: offDeck, placed: bushes, kinds: ['bougainvillea', 'lantana'] });
+  plantBushes(b, M, br.fork(4), [V.D + 3, PX1 - 1.5, drive.z0 - 4, drive.z1 + 4], 2, { ok: offDeck, placed: bushes, kinds: ['hibiscus', 'oleander'] });
 
   const mesh = finalizeMesh(b);
   return {

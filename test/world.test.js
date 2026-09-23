@@ -28,7 +28,13 @@ test('sky: bright day, dark starry night with the lights on', () => {
   const night = skyState(22);
   assert.ok(day.keyOn && day.night === 0 && day.lights === 0);
   assert.ok(night.night > 0.9 && night.stars > 0.9 && night.lights === 1);
-  assert.ok(night.zenith.reduce((a, b) => a + b) < day.zenith.reduce((a, b) => a + b) / 4);
+  // The day is a deep cobalt and the night a luminous royal blue, as the
+  // painters have it: darker by half, and still blue.
+  const luma = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+  assert.ok(luma(night.zenith) < luma(day.zenith) * 0.6);
+  assert.ok(night.zenith[2] > 2 * night.zenith[1] && night.zenith[1] > night.zenith[0], 'the night sky is blue');
+  // And a clear day's sky stays saturated right down to the horizon.
+  assert.ok(day.horizon[2] > 1.5 * day.horizon[0], 'no white haze at the horizon');
   // Shadows are a hue shift: the shade tone is bluer than the light tone.
   assert.ok(day.amb[2] > day.amb[0] && day.key[0] > day.key[2]);
 });
@@ -95,9 +101,10 @@ test('a small render is finite, sky is blue by day, and night is dark', () => {
   r.setTime(22);
   const night = r.render();
   assert.ok(night.every(Number.isFinite));
-  // The glowing pool keeps the frame bright; the sky itself goes dark.
-  assert.ok(mean(night) < mean(day) * 0.6, 'night is darker');
+  // The glowing pool keeps the frame bright; the blue night is still darker.
+  assert.ok(mean(night) < mean(day) * 0.85, 'night is darker');
   const nightSky = new Float64Array(3);
   r.background(0, 2, 0, 0, 0.6, 0.8, nightSky);
-  assert.ok(nightSky[0] + nightSky[1] + nightSky[2] < (sky[0] + sky[1] + sky[2]) / 4, 'night sky is dark');
+  const luma = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+  assert.ok(luma(nightSky) < luma(sky) * 0.6 && nightSky[2] > nightSky[0], 'night sky is a darker blue');
 });

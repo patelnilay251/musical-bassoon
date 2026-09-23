@@ -15,6 +15,7 @@ import { addCar, parkedCar } from '../world/cars.js';
 import { hills, lampPost } from '../world/common.js';
 import { neonWord, addBoard } from '../world/signs.js';
 import { addMeter, addHydrant, addNewsBox } from '../world/street.js';
+import { addFlowerBush } from '../world/plants.js';
 import { level } from '../camera.js';
 
 export const NAME = 'The Boulevard';
@@ -161,6 +162,25 @@ export function build(props = {}) {
   }
   diner(b, M, -1, cx0 - 31, cx0 - 2, light);
 
+  // ---- flowering bushes in planters along the shop fronts
+  const fl = sub(20);
+  for (const s of [-1, 1]) {
+    for (let x = X1 - 30 + (s > 0 ? 9 : 0); x > -240; x -= 23) {
+      if (x > cx0 - 6 && x < cx1 + 6) continue;
+      const r = fl.fork(Math.round(x * 10) + (s > 0 ? 7 : 0));
+      if (r.chance(0.35)) continue;
+      const z = s * 16.3;
+      b.use(M.curb, CAST);
+      b.box(x - 1.4, gy(x) + 0.15, z - 0.55, x + 1.4, gy(x) + 0.55, z + 0.55);
+      for (const dxo of [-0.7, 0.7]) {
+        b.push();
+        b.translate(x + dxo, gy(x) + 0.55, z);
+        addFlowerBush(b, M, r.fork(dxo > 0 ? 2 : 1), { r: 0.62, h: 0.62, kind: r.pick(['bougainvillea', 'oleander', 'hibiscus']) });
+        b.pop();
+      }
+    }
+  }
+
   // ---- the curb: a meter for every space, hydrants near the corners and
   // now and then down the hill, papers by the diner door
   const lamps = new Set();
@@ -251,7 +271,7 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(7), { clouds: [3, 5], streaks: [2, 4], gulls: [0, 3] }),
+    sky: makeSky(sub(7), { clouds: [0, 1], streaks: [2, 4], gulls: [0, 3] }),
     seaLevel: SEA,
     lights,
     shadowBox: {

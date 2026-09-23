@@ -15,6 +15,7 @@ import { addCar, parkedCar } from '../world/cars.js';
 import { addLounger, addUmbrella, addLadder, addSideTable } from '../world/props.js';
 import { hills, railing, lampPost } from '../world/common.js';
 import { addMotelSign, neonWord } from '../world/signs.js';
+import { addFlowerBush, plantBushes } from '../world/plants.js';
 import { level } from '../camera.js';
 
 export const NAME = 'The Motel';
@@ -216,6 +217,27 @@ export function build(props = {}) {
   lights.push(...addMotelSign(b, M, { noVacancy: P.noVacancy }));
   b.pop();
 
+  // ---- flowers: a planter of bougainvillea along the pool wall where it
+  // faces the lot, and a ring of them round the foot of the sign
+  const fr = sub(20);
+  b.use(M.curb, CAST);
+  b.box(-25.7, 0, -20.6, -24.25, 0.32, 0.4);
+  b.use(M.lawnTown, 0);
+  b.box(-25.6, 0.32, -20.5, -24.3, 0.34, 0.3, 'ny nx px pz nz');
+  plantBushes(b, M, fr.fork(1), [-25.2, -24.8, -20, -0.2], 6, { gap: 2.4, ground: () => 0.3, size: [0.75, 1.0], kinds: ['bougainvillea', 'bougainvillea', 'hibiscus'] });
+  b.use(M.curb, CAST);
+  b.push();
+  b.translate(sign.x, 0.15, sign.z);
+  b.cylinder(1.9, 1.9, 0, 0.36, 18);
+  b.pop();
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + 0.5;
+    b.push();
+    b.translate(sign.x + Math.cos(a) * 1.25, 0.5, sign.z + Math.sin(a) * 1.25);
+    addFlowerBush(b, M, fr.fork(10 + k), { r: 0.62, h: 0.6, kind: k % 2 ? 'lantana' : 'bougainvillea' });
+    b.pop();
+  }
+
   // ---- palms: a row of fan palms on each sidewalk, two coconuts by the pool
   const pr = sub(8);
   const palms = [];
@@ -260,7 +282,7 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(6), { clouds: [3, 5], gulls: [1, 4] }),
+    sky: makeSky(sub(6), { clouds: [0, 2], gulls: [1, 4] }),
     seaLevel: SEA,
     pool,
     lights,
@@ -377,9 +399,9 @@ function addPool(b, M, rng, lights) {
     z1: pz1,
     waterY: WATER,
     floorY: FLOOR,
-    tile: hex('#c4f0f2'),
+    tile: hex('#a6dcf2'),
     lane: hex('#2a5d9c'),
-    water: hex('#12a4d4'),
+    water: hex('#1a82d2'),
     glow: hex('#2fb8d6'),
     waves: [
       { kx: 3.1, kz: 0.9, w: 1.0, p: rng.range(0, 6.28), a: 0.012 },

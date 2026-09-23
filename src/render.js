@@ -6,7 +6,7 @@ import { ScreenTris, projectPerspective, projectOrtho, rasterize } from './raste
 import { BVH } from './bvh.js';
 import { CAST, DOUBLE, SMOOTH, UNDERWATER, NOREFLECT, DISTANT } from './mesh.js';
 import { skyState, skyColor, seaColor, SEA_LEVEL } from './sky.js';
-import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul } from './math.js';
+import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul, rgbToHsv, hsvToRgb } from './math.js';
 
 export const KIND = {
   diffuse: 0,
@@ -40,6 +40,24 @@ const TILE = 64; // output pixels per tile edge
 // Shared scratch colors (no allocation in the sample loop).
 const C = new Float64Array(3);
 const T = new Float64Array(3);
+const SH = new Float64Array(3);
+
+// A painter's shadow of local color c under the shade tone A, written to
+// out[o..o+2]. Whites and grays take the sky's tone; colored surfaces keep
+// their own hue, deeper, richer and turned a little toward the sky's, the
+// way a painter mixes a shadow instead of graying it (a pink wall goes
+// coral in shade, not mauve).
+function paintShade(c, A, out, o) {
+  const [hc, sc, vc] = rgbToHsv(c[0], c[1], c[2]);
+  const [ha, , va] = rgbToHsv(A[0], A[1], A[2]);
+  // Warm colors turn by way of red; the rest straight toward the sky.
+  const h = hc < 70 ? hc - 9 : hc < ha ? hc + Math.min(9, ha - hc) : hc - Math.min(9, hc - ha);
+  const [pr, pg, pb] = hsvToRgb(h, Math.min(1, sc * 1.15 + 0.04), vc * va * 0.9);
+  const w = (1 - sc) ** 3;
+  out[o] = pr + (A[0] * vc - pr) * w;
+  out[o + 1] = pg + (A[1] * vc - pg) * w;
+  out[o + 2] = pb + (A[2] * vc - pb) * w;
+}
 
 export class Renderer {
   // shadowRays: trace exact shadows through a BVH instead of the shadow
@@ -58,6 +76,7 @@ export class Renderer {
     this.mEmit = new Float64Array(nm * 3);
     this.mScale = new Float64Array(nm);
     this.mAO = new Uint8Array(nm);
+    this.mShade = new Float64Array(nm * 9); // shade for up, side, down faces
     this.mCurtain = new Uint8Array(nm);
     this.mSwitch = new Uint8Array(nm);
     // Lanes worn into a road: { ax, az } the unit vector across it, and
@@ -123,6 +142,33 @@ export class Renderer {
     this.reflValid = false;
   }
 
+  // Each material's painted shade, facing up (the ground's cast shadows,
+  // deepest and bluest), sideways (walls, lightest) and down (soffits).
+  computeShades() {
+    const { S, mShade } = this;
+    const up = [S.amb[0] * 0.82, S.amb[1] * 0.84, S.amb[2] * 0.92];
+    const c = [0, 0, 0];
+    for (let m = 0; m < this.mKind.length; m++) {
+      c[0] = this.mCol[m * 3];
+      c[1] = this.mCol[m * 3 + 1];
+      c[2] = this.mCol[m * 3 + 2];
+      paintShade(c, up, mShade, m * 9);
+      paintShade(c, S.amb, mShade, m * 9 + 3);
+      paintShade(c, S.ground, mShade, m * 9 + 6);
+    }
+  }
+
+  // The painted shade of material m on a face whose normal has height ny.
+  shadeAt(m, ny, out) {
+    const o = m * 9 + (ny >= 0 ? 0 : 6);
+    const k = ny >= 0 ? ny : -ny;
+    const M = this.mShade;
+    out[0] = M[m * 9 + 3] + (M[o] - M[m * 9 + 3]) * k;
+    out[1] = M[m * 9 + 4] + (M[o + 1] - M[m * 9 + 4]) * k;
+    out[2] = M[m * 9 + 5] + (M[o + 2] - M[m * 9 + 5]) * k;
+    return out;
+  }
+
   // Flat faces have one lit tone and one shaded tone for the whole moment:
   // compute both up front, per triangle.
   computeTriColors() {
@@ -132,6 +178,7 @@ export class Renderer {
     const [kr, kg, kb] = S.key;
     const [ar, ag, ab] = S.amb;
     const [gr, gg, gb] = S.ground;
+    this.computeShades();
     for (let t = 0; t < count; t++) {
       const m = mat[t];
       const nx = fn[t * 3];
@@ -149,12 +196,13 @@ export class Renderer {
       const cr = this.mCol[m * 3];
       const cg = this.mCol[m * 3 + 1];
       const cb = this.mCol[m * 3 + 2];
-      this.triShade[t * 3] = cr * ambR;
-      this.triShade[t * 3 + 1] = cg * ambG;
-      this.triShade[t * 3 + 2] = cb * ambB;
-      this.triLit[t * 3] = cr * (ambR + kr * lit);
-      this.triLit[t * 3 + 1] = cg * (ambG + kg * lit);
-      this.triLit[t * 3 + 2] = cb * (ambB + kb * lit);
+      this.shadeAt(m, ny, SH);
+      this.triShade[t * 3] = SH[0];
+      this.triShade[t * 3 + 1] = SH[1];
+      this.triShade[t * 3 + 2] = SH[2];
+      this.triLit[t * 3] = SH[0] + (cr * (ambR + kr) - SH[0]) * lit;
+      this.triLit[t * 3 + 1] = SH[1] + (cg * (ambG + kg) - SH[1]) * lit;
+      this.triLit[t * 3 + 2] = SH[2] + (cb * (ambB + kb) - SH[2]) * lit;
       this.triNdl[t] = ndl;
     }
   }
@@ -617,9 +665,10 @@ export class Renderer {
         lit = smoothstep(-0.08, 0.42, ndl);
         if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
         const sheen = ndl > 0.7 ? 0.07 * smoothstep(0.7, 0.95, ndl) * lit : 0;
-        r = cr * (ar + kr * lit * 0.95) + sheen;
-        g = cg * (ag + kg * lit * 0.95) + sheen;
-        b = cb * (ab + kb * lit * 0.95) + sheen;
+        this.shadeAt(m, ny, SH);
+        r = SH[0] + (cr * (ar + kr * 0.95) - SH[0]) * lit + sheen;
+        g = SH[1] + (cg * (ag + kg * 0.95) - SH[1]) * lit + sheen;
+        b = SH[2] + (cb * (ab + kb * 0.95) - SH[2]) * lit + sheen;
       }
       if (pat !== PATTERN.none) {
         const f = this.pattern(pat, m, px, py, pz, u, v, dist, dx, dy, dz);
@@ -665,21 +714,32 @@ export class Renderer {
       if (ndl > 0) {
         const vis = this.shadow(px, py, pz, nx, ny, nz);
         const lit = (ndl > 0.4 ? 1 : 0.8) * vis;
-        r = cr * (ar + kr * lit);
-        g = cg * (ag + kg * lit);
-        b = cb * (ab + kb * lit);
+        // Foliage is painted as dark masses with the sunlit leaves picked
+        // out bright: its shade is much deeper than a wall's.
+        this.shadeAt(m, ny, SH);
+        SH[0] *= 0.38;
+        SH[1] *= 0.38;
+        SH[2] *= 0.42;
+        r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+        g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+        b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
       } else {
         // Seen from the dark side, a leaf glows faintly yellow-green.
         const vis = this.shadow(px, py, pz, -nx, -ny, -nz);
         const k = 0.24 * vis;
-        r = cr * (ar + kr * k * 1.1);
-        g = cg * (ag + kg * k * 1.15);
-        b = cb * (ab + kb * k * 0.6);
+        this.shadeAt(m, -ny, SH);
+        SH[0] *= 0.38;
+        SH[1] *= 0.38;
+        SH[2] *= 0.42;
+        r = SH[0] + (cr * (ar + kr * 1.1) - SH[0]) * k;
+        g = SH[1] + (cg * (ag + kg * 1.15) - SH[1]) * k;
+        b = SH[2] + (cb * (ab + kb * 0.6) - SH[2]) * k;
       }
       if (pat === PATTERN.frond) {
-        // Deep at the crown, sunnier toward the tips of the leaves.
-        const f = 0.74 + 0.3 * u + 0.16 * v;
-        r *= f * (0.96 + 0.1 * u);
+        // Deep at the crown and bright, yellowing, toward the tips, the
+        // two-tone way palms are painted.
+        const f = 0.45 + 0.72 * u + 0.1 * v;
+        r *= f * (0.86 + 0.34 * u);
         g *= f;
         b *= f * (1.02 - 0.08 * u);
       }
@@ -723,9 +783,10 @@ export class Renderer {
       const ndl = nx * lx + ny * ly + nz * lz;
       let lit = smoothstep(0.0, 0.35, ndl);
       if (lit > 0) lit *= this.shadow(px, py, pz, nx, ny, nz);
-      r = cr * (ar + kr * lit);
-      g = cg * (ag + kg * lit);
-      b = cb * (ab + kb * lit);
+      this.shadeAt(m, ny, SH);
+      r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+      g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+      b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
       const c = -(nx * dx + ny * dy + nz * dz);
       const fres = 0.06 + 0.5 * Math.pow(1 - Math.max(0, c), 4);
       const rx = dx + 2 * c * nx;
@@ -750,9 +811,10 @@ export class Renderer {
     } else if (kind === KIND.lamp || kind === KIND.neon) {
       const ndl = nx * lx + ny * ly + nz * lz;
       const lit = ndl > 0 ? (0.6 + 0.4 * ndl) * this.shadow(px, py, pz, nx, ny, nz) : 0;
-      r = cr * (ar + kr * lit);
-      g = cg * (ag + kg * lit);
-      b = cb * (ab + kb * lit);
+      this.shadeAt(m, ny, SH);
+      r = SH[0] + (cr * (ar + kr) - SH[0]) * lit;
+      g = SH[1] + (cg * (ag + kg) - SH[1]) * lit;
+      b = SH[2] + (cb * (ab + kb) - SH[2]) * lit;
       // Neon burns past white so the glow pass picks it up.
       const kE = this.mEmitK[m];
       const on = S.lights * (kind === KIND.neon ? 1.9 : 1.15) * kE;
@@ -798,7 +860,7 @@ export class Renderer {
     // gently near, heavily for far scenery.
     if (dist > 30) {
       skyColor(S, dx, 0.0001, dz, T, false);
-      const k = flags & DISTANT ? 1 - Math.exp(-dist / 2600) : 0.16 * smoothstep(30, 220, dist) + (1 - 0.16) * (1 - Math.exp(-Math.max(0, dist - 220) / 3500));
+      const k = flags & DISTANT ? 1 - Math.exp(-dist / 5200) : 0.05 * smoothstep(60, 400, dist) + (1 - 0.05) * (1 - Math.exp(-Math.max(0, dist - 400) / 9000));
       r += (T[0] - r) * k;
       g += (T[1] - g) * k;
       b += (T[2] - b) * k;
@@ -1132,7 +1194,45 @@ export class Renderer {
     ir = ir * ar + wr * (1 - ar);
     ig = ig * ag + wg * (1 - ag);
     ib = ib * ab + wb * (1 - ab);
-    this.paintWater(ir + (rr - ir) * fres, ig + (rg - ig) * fres, ib + (rb - ib) * fres, dist, 1, out);
+    let wr2 = ir + (rr - ir) * fres;
+    let wg2 = ig + (rg - ig) * fres;
+    let wb2 = ib + (rb - ib) * fres;
+    // The sun on the ripples, as painters dab it: a mosaic of small bright
+    // flecks, squashed flat by the distance.
+    const fl = this.flecks(px, pz, tm, dist, dy) * (S.keyOn ? 0.85 : 0.25 + 0.35 * S.lights);
+    wr2 += (0.9 - wr2) * fl;
+    wg2 += (0.97 - wg2) * fl;
+    wb2 += (1.02 - wb2) * fl;
+    this.paintWater(wr2, wg2, wb2, dist, 0.45, out);
+  }
+
+  // Coverage of the pool's flecks at (px, pz): an ellipse jittered into
+  // every cell of a fine grid, each breathing in and out with the ripples.
+  // Too small to draw at a distance, they become an even lightening.
+  flecks(px, pz, tm, dist, dy) {
+    const G = 0.42;
+    const foot = (dist * this.pixelAngle * 1.5) / Math.max(0.08, Math.abs(dy));
+    const far = smoothstep(0.03, 0.09, foot);
+    if (far >= 1) return 0.1;
+    const ci = Math.floor(px / G);
+    const cj = Math.floor(pz / G);
+    let cov = 0;
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        const h1 = hash2(i * 3 + 11, j * 7 - 5);
+        if (h1 < 0.18) continue; // some cells have none
+        const cx = (i + 0.15 + 0.7 * hash2(i, j + 41)) * G;
+        const cz = (j + 0.15 + 0.7 * hash2(i + 17, j)) * G;
+        const breathe = 0.65 + 0.35 * Math.sin(tm * 1.7 + h1 * 40);
+        const rx = G * (0.1 + 0.14 * hash2(i - 9, j + 3)) * breathe;
+        const rz = rx * (0.4 + 0.35 * hash2(i + 5, j - 13));
+        const ex = (px - cx) / rx;
+        const ez = (pz - cz) / rz;
+        const d = ex * ex + ez * ez;
+        if (d < 1.4) cov = Math.max(cov, smoothstep(1.4, 0.7, d));
+      }
+    }
+    return cov * (1 - far) + 0.1 * far;
   }
 
   // Open water: a deep body color that cools with distance, the mirrored
@@ -1292,7 +1392,7 @@ function shoulder(x) {
  * A fine, fixed grain stands in for the tooth of acrylic sprayed on board;
  * it is strongest in the midtones so whites stay clean. It also dithers.
  */
-export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H, grain = 0.024) {
+export function toRGBA(img, W, H, rgba = new Uint8ClampedArray(W * H * 4), x0 = 0, y0 = 0, x1 = W, y1 = H, grain = 0.006) {
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const i = y * W + x;
