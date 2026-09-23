@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Paloma Bay: the attract mode</title>
+<title>One Day in Paloma Bay</title>
 <style>
   :root {
     --night: #070920;
@@ -26,7 +26,7 @@
     place-items: center;
     padding: max(4vh, env(safe-area-inset-top)) 4vw max(4vh, env(safe-area-inset-bottom));
   }
-  .inner { width: min(1536px, 92vw, calc(74vh * 16 / 9)); }
+  .inner { width: min(1600px, 92vw, calc(74vh * 16 / 9)); }
   video {
     display: block;
     width: 100%;
@@ -51,11 +51,13 @@
   }
   p {
     margin: 8px 0 0;
-    max-width: 40em;
+    max-width: 42em;
     color: var(--ink-soft);
     font-size: clamp(14px, 1.2vw, 16px);
     line-height: 1.6;
   }
+  p a { color: var(--ink-soft); }
+  p a:hover { color: var(--ink); }
   nav {
     font-size: 11px;
     letter-spacing: 0.3em;
@@ -74,13 +76,13 @@
 <body>
 <main>
   <div class="inner">
-    <video controls playsinline preload="metadata" poster="film/poster.png" src="film/paloma-bay.mp4"></video>
+    <video controls playsinline preload="metadata" poster="film/one-day.png" src="film/one-day.mp4"></video>
     <div class="caption">
       <div>
-        <h1>Paloma Bay, the attract mode</h1>
-        <p>An arcade game from a summer that never happened. Somebody drops in a coin, presses start, and plays the visitor, who is never seen: one day in town, from before dawn at the motel to the last room going. Painted by the same engine as the town, at 384&times;216 in 512 colors, with its music and sound made in code.</p>
+        <h1>One Day in Paloma Bay</h1>
+        <p>One summer day in a seaside town that doesn't exist, from before dawn to the last room going. The film passes through every postcard in the book, each at its own minute, and follows a visitor who is never seen: only their yellow convertible, the song on its radio, a towel on the sand, a room light coming on. Every picture, sound and note is made from rules, by the same engine as the town. <a href="https://github.com/patelnilay251/musical-bassoon/releases/tag/render-day-final">The 1080p master</a> is on GitHub.</p>
       </div>
-      <nav><a href="index.html">The town</a><a href="book.html">Postcards</a><a href="day.html">One day</a></nav>
+      <nav><a href="index.html">The town</a><a href="book.html">Postcards</a><a href="film.html">Arcade</a></nav>
     </div>
   </div>
 </main>

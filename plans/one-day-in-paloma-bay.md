@@ -1,6 +1,22 @@
-# One Day in Paloma Bay: director's plan (draft)
+# One Day in Paloma Bay: director's plan
 
-*A short film of the town at full painted resolution. No pixel look, no game layer. For discussion before anything is built.*
+*A short film of the town at full painted resolution. No pixel look, no game layer. Written for discussion before anything was built; the notes below record what was decided and what changed on the way.*
+
+## As built
+
+- **Answers:** the full cut (3:03, all thirteen shots), captions at every postcard, the score with the car radio, a 1080p master, rendered on GitHub Actions.
+- **Animations kept:** pelicans, twinkling stars, the umbrellas breathing, the beacon's flash, the sloop coming home, motion blur on the car. The page turn and the sprinkler were dropped. At the film's framing the book and the lawn are too small in the frame for either to read.
+- **Added while shooting:**
+  - footprints from the towel to the water, and back once the board is returned;
+  - the visitor's window on its own switch, and curtains in every lit room;
+  - a new lofted convertible;
+  - wind ripples in the sand, mowing stripes, and lane wear on the roads;
+  - parking meters, hydrants and newspaper boxes along the boulevard;
+  - a little bell over the diner's door.
+- **Changed:**
+  - The opening title and the closing line moved into the sky left of the MOTEL pylon, which a centered title runs into.
+  - The pier shot keeps its silence, as planned. The chords of the shore shot ring on over the cut into it.
+  - The radio plays the attract mode's song at its own 100 bpm. It is cut once inside the chorus and once in the hook's last bar, and the night's score picks up the three notes it broke off.
 
 ## The idea
 
