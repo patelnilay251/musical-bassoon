@@ -8,6 +8,7 @@
 
 import { CAST, DOUBLE, SMOOTH } from '../mesh.js';
 import { normalize, cross, sub, madd } from '../math.js';
+import { motion, phase as swayPhase } from './motion.js';
 
 export function addPalm(b, rng, M, x, z, opts = {}) {
   const height = opts.height ?? rng.range(7, 11);
@@ -48,10 +49,18 @@ export function addPalm(b, rng, M, x, z, opts = {}) {
   const az0 = rng.range(0, Math.PI * 2);
   for (let i = 0; i < n; i++) {
     const tier = i % 3;
-    const az = az0 + (i / n) * Math.PI * 2 + rng.range(-0.18, 0.18);
-    const el = [0.62, 0.2, -0.22][tier] + rng.range(-0.12, 0.12);
+    let az = az0 + (i / n) * Math.PI * 2 + rng.range(-0.18, 0.18);
+    let el = [0.62, 0.2, -0.22][tier] + rng.range(-0.12, 0.12);
     const len = rng.range(3.3, 4.5) * [0.8, 1, 1.03][tier] * (opts.frondScale ?? 1);
-    const droop = rng.range(1.1, 1.8) * [0.75, 1, 1.3][tier];
+    let droop = rng.range(1.1, 1.8) * [0.75, 1, 1.3][tier];
+    if (motion.wind > 0) {
+      // In the breeze each frond lifts, drops and swings out of step.
+      const w = motion.wind;
+      const ph = swayPhase(i, x, z);
+      az += w * 0.07 * Math.sin(1.1 * motion.t + ph);
+      el += w * 0.06 * Math.sin(1.7 * motion.t + ph * 1.3);
+      droop *= 1 + w * 0.1 * Math.sin(1.3 * motion.t + ph * 0.7);
+    }
     addFrond(b, rng, madd(top, axis, 0.2), az, el, len, droop, rng.chance(0.45) ? M.frondDark : M.frond);
   }
   return { top, height };

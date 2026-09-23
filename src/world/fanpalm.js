@@ -7,6 +7,7 @@
 
 import { CAST, DOUBLE, SMOOTH } from '../mesh.js';
 import { normalize, cross, madd, sub } from '../math.js';
+import { motion, phase } from './motion.js';
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
@@ -60,9 +61,14 @@ export function addFanPalm(b, rng, M, x, z, { height = rng.range(15, 22), ground
   const az0 = rng.range(0, Math.PI * 2);
   b.use(M.fanLeaf, CAST | DOUBLE);
   for (let i = 0; i < leaves; i++) {
-    const az = az0 + i * GOLDEN + rng.range(-0.2, 0.2);
+    let az = az0 + i * GOLDEN + rng.range(-0.2, 0.2);
     const age = rng.float();
-    const el = age < 0.28 ? rng.range(0.85, 1.3) : age < 0.8 ? rng.range(-0.15, 0.6) : rng.range(-0.85, -0.3);
+    let el = age < 0.28 ? rng.range(0.85, 1.3) : age < 0.8 ? rng.range(-0.15, 0.6) : rng.range(-0.85, -0.3);
+    if (motion.wind > 0) {
+      const ph = phase(i, x, z);
+      az += motion.wind * 0.08 * Math.sin(1.2 * motion.t + ph);
+      el += motion.wind * 0.07 * Math.sin(1.9 * motion.t + ph * 1.4);
+    }
     const d = [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
     const stalk = rng.range(0.6, 1.2) * (age < 0.28 ? 0.8 : 1);
     const base = madd(madd(top, axis, 0.15), d, stalk);

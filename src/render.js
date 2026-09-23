@@ -90,15 +90,26 @@ export class Renderer {
     this.bvh = shadowRays ? new BVH(mesh) : null;
     this.seaLevel = world.seaLevel ?? SEA_LEVEL;
     this.mirror = world.mirror || (world.pool ? { y: world.pool.waterY, rect: world.pool } : null);
+    // Power to lamps and neon by material name (1 = as the hour says): a
+    // sign can flicker off at sunrise while the rest of the town stays lit.
+    // Light pools tagged with a material follow it.
+    const power = world.emitScale ?? {};
+    this.mEmitK = new Float64Array(nm).fill(1);
+    mats.forEach((m, i) => {
+      if (power[m.name] !== undefined) this.mEmitK[i] = power[m.name];
+    });
+    this.lightK = Float64Array.from(world.lights ?? [], (L) => (L.emit && power[L.emit] !== undefined ? power[L.emit] : 1));
   }
 
   // ---------------------------------------------------------------- setup
 
-  setTime(hours) {
+  // `t`: seconds on a clock of its own for the water, so a film can let
+  // ripples run in real time while the sun crawls. Stills tie it to the hour.
+  setTime(hours, t) {
+    this.ripple_t = t ?? hours * 0.35;
     if (this.hours === hours && this.S) return;
     this.hours = hours;
     this.S = skyState(hours, this.world.sky || { clouds: this.world.clouds });
-    this.ripple_t = hours * 0.35;
     this.computeTriColors();
     this.shadowValid = false;
     this.reflValid = false;
@@ -735,10 +746,12 @@ export class Renderer {
       g = cg * (ag + kg * lit);
       b = cb * (ab + kb * lit);
       // Neon burns past white so the glow pass picks it up.
-      const on = S.lights * (kind === KIND.neon ? 1.9 : 1.15);
-      r += (this.mEmit[m * 3] * on - r) * Math.min(1, S.lights * 1.2);
-      g += (this.mEmit[m * 3 + 1] * on - g) * Math.min(1, S.lights * 1.2);
-      b += (this.mEmit[m * 3 + 2] * on - b) * Math.min(1, S.lights * 1.2);
+      const kE = this.mEmitK[m];
+      const on = S.lights * (kind === KIND.neon ? 1.9 : 1.15) * kE;
+      const mix = Math.min(1, S.lights * 1.2 * Math.min(1, kE));
+      r += (this.mEmit[m * 3] * on - r) * mix;
+      g += (this.mEmit[m * 3 + 1] * on - g) * mix;
+      b += (this.mEmit[m * 3 + 2] * on - b) * mix;
     } else {
       r = cr;
       g = cg;
@@ -762,7 +775,7 @@ export class Renderer {
         const dl = Math.sqrt(d2) || 1;
         const cos = (qx * nx + qy * ny + qz * nz) / dl;
         if (cos <= 0) continue;
-        const k = (Lt.k * cos) / (1 + d2 / rr);
+        const k = ((Lt.k * cos) / (1 + d2 / rr)) * this.lightK[i];
         lr += Lt.c[0] * k;
         lg += Lt.c[1] * k;
         lb += Lt.c[2] * k;

@@ -143,16 +143,33 @@ export function build(props = {}) {
   const cr = sub(7);
   const cars = [];
   for (let k = 0; k < 6; k++) {
+    // One stream per stall, so the others never change when the visitor
+    // comes or goes.
+    const r = cr.fork(k + 1);
     const zc = stall0 + k * 3 + 1.5;
     const visitor = k === 2;
-    if (visitor ? !P.car : !cr.chance(0.5)) continue;
+    if (visitor ? !P.car || P.carAt : !r.chance(0.5)) continue;
     b.push();
-    b.translate(-5.2 + cr.range(-0.15, 0.15), 0, zc + cr.range(-0.12, 0.12));
-    b.rotateY(cr.range(-0.03, 0.03));
+    b.translate(-5.2 + r.range(-0.15, 0.15), 0, zc + r.range(-0.12, 0.12));
+    b.rotateY(r.range(-0.03, 0.03));
     if (visitor) addCar(b, M, { paint: M.visitor });
-    else parkedCar(b, M, cr);
+    else parkedCar(b, M, r);
     b.pop();
     cars.push({ z: zc, visitor });
+  }
+  // The visitor's car on its way somewhere: { x, z, yaw, lit } (yaw turns
+  // the nose from +x toward -z).
+  if (P.carAt) {
+    const { x, y = 0, z, yaw, lit } = P.carAt;
+    b.push();
+    b.translate(x, y, z);
+    b.rotateY(yaw);
+    addCar(b, M, { paint: M.visitor, lit });
+    b.pop();
+    // Headlights throw a pool of light ahead; the taillights a red glow.
+    const c = Math.cos(yaw);
+    const s = -Math.sin(yaw);
+    if (lit) lights.push({ p: [x + c * 5, 0.8, z + s * 5], c: [1, 0.92, 0.72], r: 4.5, k: 1.2 }, { p: [x - c * 3, 0.6, z - s * 3], c: [1, 0.2, 0.15], r: 1.4, k: 0.6 });
   }
   lights.push(lampPost(b, M, LX0 + 1.2, -12, 0, { height: 4.6, reach: 7 }));
   lights.push(lampPost(b, M, LX0 + 1.2, 30, 0, { height: 4.6, reach: 7 }));

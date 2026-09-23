@@ -1,15 +1,16 @@
 {
   "name": "musical-bassoon",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Paloma Bay: a seaside town painted by a from-scratch software renderer, in homage to Hiroshi Nagai. An immersive site and a book of postcards.",
+  "description": "Paloma Bay: a seaside town painted by a from-scratch software renderer, in homage to Hiroshi Nagai. An immersive site, a book of postcards, and a film in the manner of an arcade game's attract mode.",
   "type": "module",
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
     "build": "node scripts/build.js",
     "book": "node scripts/book.js",
     "gallery": "node scripts/gallery.js",
-    "render": "node scripts/render.js"
+    "render": "node scripts/render.js",
+    "film": "node scripts/film.js"
   },
   "license": "MIT",
   "devDependencies": {

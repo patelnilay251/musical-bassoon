@@ -342,8 +342,10 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
       const v = -x * sn + y * c;
       const t = Math.abs(u) / gl.s;
       if (t > 1) continue;
-      const curve = gl.s * (0.34 * t - 0.16 * Math.sin(Math.PI * t));
-      if (Math.abs(v - curve) < gl.s * 0.07 * (1.1 - 0.7 * t)) {
+      // flap: 1 is the gliding "m"; below zero the wingtips beat down.
+      // w thickens the stroke, for pictures with few pixels to spare.
+      const curve = gl.s * (0.34 * t - 0.16 * Math.sin(Math.PI * t)) * (gl.flap ?? 1);
+      if (Math.abs(v - curve) < gl.s * 0.07 * (gl.w ?? 1) * (1.1 - 0.7 * t)) {
         const k = 0.75 * (1 - S.night);
         r += (0.2 - r) * k;
         g += (0.26 - g) * k;

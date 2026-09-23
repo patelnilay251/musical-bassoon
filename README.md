@@ -8,6 +8,7 @@ A motel on the coast highway, a boulevard laid out on the midsummer sunset, a be
 
 - **Visit the town:** [`docs/index.html`](docs/index.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/)). Full screen, one picture at a time, nothing else on it. Drag across the painting to pass the day. `←` `→` go to another place and `↑` `↓` to another view of it; on a phone, tap the edges or flick up and down. `Space` lets the day go by on its own. The page opens wherever the visitor happens to be at your local time.
 - **The book:** [`docs/book.html`](docs/book.html). *Wish You Were Here*: ten postcards from one summer day, sent by someone who never appears in any of them.
+- **The film:** [`docs/film.html`](docs/film.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/film.html)). *Paloma Bay, the attract mode*: 86 seconds of an arcade game from a summer that never happened, with its own music.
 - **The workshop:** [`docs/workshop.html`](docs/workshop.html). The first viewer, with all its knobs, for the house alone.
 - **The idea behind it:** [`PHILOSOPHY.md`](PHILOSOPHY.md).
 
@@ -26,11 +27,21 @@ Nobody appears anywhere in town. Someone is visiting, though, and they keep a sc
 
 ## One place, one day
 
-The sun follows its real path over 34° north in late July. The palette, the shadows, the sea glitter and the lights all follow from the hour. Neon burns until sunrise, and the NO in NO VACANCY comes on after half past eight.
+The sun follows its real path over 34° north in late July. The palette, the shadows, the sea glitter and the lights all follow from the hour. Neon burns until sunrise, and the NO in NO VACANCY comes on when the visitor gets back for the night.
 
 ![The motel at eight hours from before dawn to night](docs/gallery/day.png)
 
-## Painted, not rendered
+## The attract mode
+
+[![PALOMA BAY, the title screen: the motel at night under its neon sign, PRESS START](docs/film/poster.png)](docs/film.html)
+
+The town, filmed as the arcade game its summer would have had, playing itself between customers. Somebody drops in a coin and presses start, and the game plays one day as the visitor. It starts before dawn at the motel with the sun coming up over the hills. Then the yellow convertible drives down the boulevard to the diner, with the speedometer running. After that come a morning at the house, the surf at the beach, and the red sloop motoring out of the marina and getting its sails up. The camera glides down the boulevard as the sun sets at the end of it and the street lamps catch. At night the car comes home to its stall, the NO in NO VACANCY buzzes on, and the caption types itself out: WISH YOU WERE HERE. INSERT COIN.
+
+- **Everything moves.** Each frame builds the place as it stands at that instant (`src/world/motion.js`): fronds sway in the onshore wind, boats heave and pitch on the swell, breakers surge in and the swash runs up the sand, the tower's flag flutters, gulls cross the sky. The car and the sloop follow paths with speed profiles (`film/score.js`). At rest, for the stills, nothing moves.
+- **The look of the hardware** (`src/retro.js`, `src/pixelfont.js`, `film/screen.js`). The engine paints each frame at 384×216. It is reduced to 512 colors (three bits a channel) with a 4×4 ordered dither and enlarged four times with hard pixels and scanlines. The HUD, the stage cards and the logo are drawn in a 5×7 board font. Stages change the way consoles changed them: the picture breaks into blocks and fades in steps. Quiet scenes are animated on twos, 15 pictures a second; the two drives run at 30.
+- **The sound** (`src/audio/synth.js`, `film/music.js`, `film/sfx.js`). An original tune in D in the city-pop manner is played on a small FM synthesizer written for it. It uses rootless ninth chords and the royal road progression (IV–V–iii–vi), with the last chorus a whole step up for the sunset. Every effect is synthesized and placed from the same score as the pictures. The surf breaks when the lines on screen do, the engine's revs follow the car's speed, the door closes after the car has parked, and the neon clicks on frame by frame.
+
+
 
 The first version rendered a resort. This one tries to paint a town, the way an illustrator with an airbrush would:
 
@@ -65,12 +76,15 @@ The boulevard is built in a road frame and turned onto the sunset bearing. Every
 Node 22 or newer. `npm install` brings in esbuild, which is used only to bundle the site.
 
 ```sh
-npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service
+npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, the film
 npm run build            # docs/index.html (the town) and docs/workshop.html (the old viewer)
 npm run book             # the postcards, in parallel on every core, into docs/book/ and docs/book.html
 npm run gallery          # the contact sheets above
+npm run film             # the film, its poster and docs/film.html (needs ffmpeg)
 npm run render -- --place marina --view slips --time 15.8 --w 1500 --h 1000 --ss 3 --rays --out docks.png
 ```
+
+The film takes about seven minutes on four cores: 2,592 frames, each built and painted from scratch, streamed in order into ffmpeg (on the `PATH`, or named by `FFMPEG`). `npm run film -- --draft` makes a quick 768×432 cut in three minutes, and `--from 57.6 --to 67.2` renders a single stage. The soundtrack takes ten seconds. The film is 1536×864 because at four times enlargement each board pixel fills exactly one of H.264's 4×4 blocks, which keeps the pixels hard and the file small.
 
 `node scripts/book.js --inline book.html` writes a single self-contained copy of the book with the images embedded. A 1500×1000 postcard with 9 samples per pixel and exact shadows takes 8 to 19 seconds on one core, and the whole book about 40 seconds on four.
 
@@ -78,4 +92,5 @@ npm run render -- --place marina --view slips --time 15.8 --w 1500 --h 1000 --ss
 
 - The style is an homage. No artwork was copied or used as input; the look comes from rules written in code.
 - Geometry ranges from about 32,000 triangles (the house) to 145,000 (the boulevard, which has 128 palms on it).
+- The film's game, its company and its copyright line are fictional.
 - `PHILOSOPHY.md` is the brief the engine was built against.

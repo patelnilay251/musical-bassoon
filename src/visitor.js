@@ -26,7 +26,8 @@ export function propsAt(place, hours) {
   const car = whereIs(hours) === place;
   switch (place) {
     case 'motel':
-      return { car, noVacancy: hours >= 20.5 || hours < 5.5 };
+      // The last room goes when the visitor gets back for the night.
+      return { car, noVacancy: hours >= 20.8 || hours < 5.5 };
     case 'boulevard':
       return { car };
     case 'beach': {

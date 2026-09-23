@@ -67,6 +67,8 @@ export function makeMaterials(rng) {
   add('leather', { color: '#efe2c8' });
   add('tire', { color: '#262628' });
   add('headlight', { kind: 'paint', color: '#f3efe2' }); // parked: never lit
+  add('headlightLit', { kind: 'lamp', color: '#f3efe2', emit: '#fff1cc' }); // driving after dark
+  add('taillightLit', { kind: 'lamp', color: '#c8262c', emit: '#ff3a30' });
   add('taillight', { color: '#c8262c' });
   add('globe', { kind: 'lamp', color: '#f6f2e8', emit: '#ffe6ad' });
   add('post', { color: '#f0ece3' });
@@ -153,5 +155,6 @@ export function makeMaterials(rng) {
   add('lawnTown', { color: '#4aa865' });
   add('scenery', { kind: 'distant', color: '#8f95c4' });
   add('headland', { kind: 'distant', color: '#8a86b6' });
+  add('sail', { color: '#fbf8f0' });
   return { list, M, accent, car };
 }

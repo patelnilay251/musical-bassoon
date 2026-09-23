@@ -3,6 +3,7 @@
 
 import { CAST, DOUBLE, SMOOTH, NOREFLECT } from '../mesh.js';
 import { railing } from './common.js';
+import { motion } from './motion.js';
 
 // Lifeguard tower facing -x (the sea), foot at the origin. A square cabin
 // glazed on three sides, a deck in front, a ramp down the back, a flag.
@@ -70,7 +71,10 @@ export function addLifeguardTower(b, M) {
   b.use(M.trim, CAST | SMOOTH);
   b.tube([[0, ry + 0.7, 0], [0, ry + 2.3, 0]], [0.03, 0.025], 5);
   b.use(M.signRed, CAST | DOUBLE);
-  b.quad([0, ry + 2.25, 0], [0, ry + 1.75, 0], [-0.05, ry + 1.8, 0.75], [-0.05, ry + 2.2, 0.72]);
+  const fl = motion.wind > 0 ? motion.wind : 0; // the flag's free edge flutters
+  const fx = fl * 0.09 * Math.sin(3.3 * motion.t);
+  const fz = fl * 0.05 * Math.sin(2.6 * motion.t + 1);
+  b.quad([0, ry + 2.25, 0], [0, ry + 1.75, 0], [-0.05 + fx, ry + 1.8, 0.75 + fz], [-0.05 - fx, ry + 2.2, 0.72 - fz]);
   return { floor: F, top: ry + 0.75 };
 }
 
@@ -191,13 +195,17 @@ export function addFoam(b, M, { z0, z1, step = 1.5, xa, xb, y = 0.012, mat = M.f
 
 // A line of breaking waves parallel to the shore, painted as a chain of
 // long tapered strokes with gaps, each riding a little in or out.
-export function addBreakers(b, M, rng, { x, z0, z1, width = 0.8, len = [6, 22], gap = [2, 9], y = 0.012, mat = M.foam }) {
+// surge: how far (m) the line runs in and back with the swell, once every
+// `period` seconds, `lag` radians behind the line further out.
+export function addBreakers(b, M, rng, { x, z0, z1, width = 0.8, len = [6, 22], gap = [2, 9], y = 0.012, mat = M.foam, surge = 0, period = 7.5, lag = 0 }) {
   b.use(mat, NOREFLECT);
+  const sw = motion.wind > 0 ? surge : 0;
   let z = z0 + rng.range(0, gap[1]);
   while (z < z1) {
     const L = rng.range(len[0], len[1]);
-    const W = width * rng.range(0.5, 1.2);
-    const xc = x + rng.range(-1.2, 1.2);
+    const ph = ((2 * Math.PI) / period) * motion.t - lag - z * 0.012;
+    const W = width * rng.range(0.5, 1.2) * (sw ? 1 + 0.35 * Math.sin(ph + 1.2) : 1);
+    const xc = x + rng.range(-1.2, 1.2) + sw * Math.sin(ph);
     const bow = rng.range(-0.6, 0.6);
     const n = Math.max(4, Math.round(L / 1.2));
     let prev = null;

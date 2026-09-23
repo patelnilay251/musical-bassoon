@@ -56,6 +56,33 @@ test('props move the traces, never the town', () => {
   }
 });
 
+// The mesh without something is the mesh with it, one run of triangles cut out.
+function cutFrom(whole, part) {
+  const a = whole.mesh.pos;
+  const b = part.mesh.pos;
+  let p = 0;
+  while (p < b.length && a[p] === b[p]) p++;
+  let q = 0;
+  while (q < b.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  return p + q === b.length && b.length < a.length;
+}
+
+test('the visitor coming and going moves nothing else in town', () => {
+  // Every parked car and every boat draws from a stream of its own, so the
+  // visitor's car (or the red sloop) is the only thing that changes.
+  for (const id of ORDER) assert.ok(cutFrom(buildPlace(id, { car: true }), buildPlace(id, { car: false })), `${id}: taking the car away changed something else`);
+  assert.ok(cutFrom(buildPlace('marina', { sloop: 'in' }), buildPlace('marina', { sloop: 'out' })), 'the sloop leaving changed another boat');
+});
+
+test('the sloop under way is the same boat that lies in the slip', () => {
+  const inSlip = buildPlace('marina', { sloop: 'in' });
+  const home = inSlip.layout.sloop;
+  const away = buildPlace('marina', { sloop: 'out', sloopAt: { ...home } });
+  assert.equal(away.mesh.count, inSlip.mesh.count);
+  const sum = (m) => m.pos.reduce((acc, v) => acc + v, 0);
+  assert.ok(Math.abs(sum(away.mesh) - sum(inSlip.mesh)) < 1e-3 * away.mesh.count);
+});
+
 test('the boulevard is laid out on the midsummer sunset', () => {
   // Find sunset, then its compass bearing.
   let h = 18;

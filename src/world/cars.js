@@ -52,14 +52,15 @@ function bodyProfile(open) {
   ];
 }
 
-export function addCar(b, M, { paint = M.paint, type = 'convertible' } = {}) {
+// lit: headlights and taillights on (a car being driven after dark).
+export function addCar(b, M, { paint = M.paint, type = 'convertible', lit = false } = {}) {
   b.object();
   const open = type === 'convertible';
   b.use(paint, CAST);
   b.profile(bodyProfile(open), -HALF, HALF);
   if (open) openCabin(b, M, paint);
   else closedCabin(b, M, paint, type === 'wagon');
-  wheelsAndTrim(b, M);
+  wheelsAndTrim(b, M, lit);
 }
 
 function openCabin(b, M, paint) {
@@ -148,7 +149,7 @@ function closedCabin(b, M, paint, wagon) {
   }
 }
 
-function wheelsAndTrim(b, M) {
+function wheelsAndTrim(b, M, lit) {
   // Wheels with chrome hubcaps.
   for (const xc of [XF, XR]) {
     for (const side of [-1, 1]) {
@@ -167,7 +168,7 @@ function wheelsAndTrim(b, M) {
   b.box(2.36, 0.26, -HALF + 0.04, 2.48, 0.4, HALF - 0.04);
   b.box(-2.48, 0.26, -HALF + 0.04, -2.34, 0.4, HALF - 0.04);
   b.box(2.37, 0.44, -0.42, 2.41, 0.6, 0.42);
-  b.use(M.headlight, CAST | SMOOTH);
+  b.use(lit ? M.headlightLit : M.headlight, CAST | SMOOTH);
   for (const zc of [-0.66, 0.66]) {
     b.push();
     b.translate(2.37, 0.62, zc);
@@ -175,7 +176,7 @@ function wheelsAndTrim(b, M) {
     b.cylinder(0.1, 0.1, 0, 0.04, 12);
     b.pop();
   }
-  b.use(M.taillight, CAST);
+  b.use(lit ? M.taillightLit : M.taillight, CAST);
   for (const s of [-1, 1]) b.box(-2.41, 0.6, s > 0 ? 0.5 : -0.82, -2.36, 0.72, s > 0 ? 0.82 : -0.5);
 }
 

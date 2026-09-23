@@ -164,22 +164,40 @@ export function build(props = {}) {
   // ---- parked cars, and the yellow convertible outside the diner
   const cr2 = sub(4);
   const cars = [];
+  let slot = 0;
   for (const s of [-1, 1]) {
     for (let x = X1 - 12; x > -260; x -= 6.4) {
       if (x > cx0 - 5 && x < cx1 + 5) continue;
+      const r = cr2.fork(++slot); // one stream per space along the curb
       const visitor = s < 0 && Math.abs(x - (cx0 - 14)) < 3.2;
       // Nothing parked right under the diner view's feet.
       if (s > 0 && Math.abs(x - (cx0 - 15)) < 14) continue;
-      if (visitor ? !P.car : !cr2.chance(0.32)) continue;
+      if (visitor ? !P.car || P.drive : !r.chance(0.32)) continue;
       // Parked with the traffic: downhill on the right, uphill on the left.
       b.push();
       b.translate(x, gy(x), s * 10.9);
-      b.rotateY((s < 0 ? Math.PI : 0) + cr2.range(-0.02, 0.02));
+      b.rotateY((s < 0 ? Math.PI : 0) + r.range(-0.02, 0.02));
       b.rotateZ((s < 0 ? -1 : 1) * Math.atan(GRADE));
       if (visitor) addCar(b, M, { paint: M.visitor });
-      else parkedCar(b, M, cr2);
+      else parkedCar(b, M, r);
       b.pop();
       cars.push({ x, s, visitor });
+    }
+  }
+  // The visitor's car on the move, downhill: { x, z, lit } in the road frame.
+  if (P.drive) {
+    const { x, z, yaw = 0, lit } = P.drive;
+    b.push();
+    b.translate(x, gy(x), z);
+    b.rotateY(Math.PI + yaw);
+    b.rotateZ(-Math.atan(GRADE));
+    addCar(b, M, { paint: M.visitor, lit });
+    b.pop();
+    const c = -Math.cos(yaw);
+    const s = Math.sin(yaw);
+    if (lit) {
+      light([x + c * 5, gy(x + c * 5) + 0.8, z + s * 5], [1, 0.92, 0.72], 4.5, 1.2);
+      light([x - c * 3, gy(x - c * 3) + 0.6, z - s * 3], [1, 0.2, 0.15], 1.4, 0.6);
     }
   }
   b.pop();
@@ -206,6 +224,9 @@ export function build(props = {}) {
       max: [Math.max(...box.map((p) => p[0])), 28, Math.max(...box.map((p) => p[2]))],
     },
     layout: { palms, cars, cross: CROSS },
+    // For compositions along the road: road frame -> world, the ground,
+    // and how far road headings are turned from compass headings.
+    road: { toWorld: W, ground: gy, turn: AZ - 270 },
     views: {
       sunset: view([70, gy(70) + 1.6, -1.2], 270, 26, 0.34),
       diner: view([cx0 - 15, gy(cx0 - 15) + 1.62, 15], 0, 36, 0.3),
