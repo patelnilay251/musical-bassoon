@@ -121,8 +121,10 @@
     pointer-events: none;
     transition: opacity 1.6s;
   }
+  #hint { width: max-content; max-width: 92vw; }
   #hint.gone { opacity: 0; }
   #hint kbd { font: inherit; opacity: 0.7; }
+  #hint .keys > span { white-space: nowrap; margin: 0 0.75em; }
   #hint .touch { display: none; }
   .corner {
     position: fixed;
@@ -131,11 +133,26 @@
     font-size: 11px;
     letter-spacing: 0.3em;
     text-transform: uppercase;
-    color: var(--ink-soft);
-    text-decoration: none;
     text-shadow: var(--shadow);
   }
-  .corner:hover { color: var(--ink); }
+  .corner a { color: var(--ink-soft); text-decoration: none; margin-left: 1.8em; }
+  .corner a:hover { color: var(--ink); }
+  /* The two looks: the one on show in full ink, the other a click away. */
+  .looks button {
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-shadow: inherit;
+    color: var(--ink-soft);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .looks button + button::before { content: "/"; margin: 0 0.7em; opacity: 0.55; }
+  .looks button:hover, .looks button[aria-pressed="true"] { color: var(--ink); }
+  .looks button:focus-visible { outline: 1px solid var(--ink-soft); outline-offset: 3px; }
   /* Over a light ground (sand, a sunlit sidewalk) the caption turns to ink. */
   .bright .caption, .bright .day {
     --ink: rgba(26, 32, 70, 0.86);
@@ -150,7 +167,7 @@
     }
   }
   .bright .day::before { background: linear-gradient(90deg, rgba(26, 32, 70, 0.1), rgba(26, 32, 70, 0.42) 16%, rgba(26, 32, 70, 0.42) 78%, rgba(26, 32, 70, 0.1)); box-shadow: none; }
-  .caption, .day::before, .corner { transition: color 0.6s; }
+  .caption, .day::before, .corner a, .looks button { transition: color 0.6s; }
   @media (hover: none) {
     .edge { opacity: 0.45; }
     #hint .keys { display: none; }
@@ -159,7 +176,9 @@
   @media (max-width: 640px) {
     .edge { font-size: 34px; }
     #hint { font-size: 11px; width: 80vw; }
-    .corner { bottom: auto; top: max(22px, env(safe-area-inset-top)); }
+    .corner { bottom: auto; top: max(22px, env(safe-area-inset-top)); letter-spacing: 0.22em; }
+    .corner a { margin-left: 1.3em; }
+    .looks button + button::before { margin: 0 0.5em; }
   }
   @media (prefers-reduced-motion: reduce) {
     #hint, .edge { transition: none; }
@@ -175,9 +194,9 @@
   <div class="town">Paloma Bay</div>
   <div class="where"><span id="place">&nbsp;</span><span class="sep">&middot;</span><span id="clock">&nbsp;</span></div>
 </div>
-<a class="corner" href="book.html">Postcards</a>
+<nav class="corner"><span class="looks" id="looks" role="group" aria-label="Look"></span><a href="day.html">Film</a><a href="book.html" id="postcards">Postcards</a></nav>
 <div class="day" id="day" aria-label="Time of day"><div id="sun"></div></div>
-<div id="hint">Drag across the picture to pass the day<br><span class="keys"><kbd>&larr; &rarr;</kbd> another place &nbsp; <kbd>&uarr; &darr;</kbd> another view &nbsp; <kbd>space</kbd> let it pass</span><span class="touch">Tap an edge for another place<br>flick up or down for another view</span></div>
+<div id="hint">Drag across the picture to pass the day<br><span class="keys"><span><kbd>&larr; &rarr;</kbd> another place</span> <span><kbd>&uarr; &darr;</kbd> another view</span> <span><kbd>L</kbd> another look</span> <span><kbd>space</kbd> let it pass</span></span><span class="touch">Tap an edge for another place<br>flick up or down for another view</span></div>
 <script>/*ENGINE*/</script>
 </body>
 </html>

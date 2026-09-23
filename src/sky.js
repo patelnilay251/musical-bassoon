@@ -2,12 +2,14 @@
 // painters for anything a ray reaches without hitting geometry: sky and sea.
 //
 // The sky is built the way it would be airbrushed: an ultramarine ground,
-// white mist sprayed up from the horizon, blue layered back over it toward
-// the zenith, and never perfectly even.
+// mist sprayed up from the horizon, blue layered back over it toward the
+// zenith, and never perfectly even. The colors, and how much of each, are
+// the look's (looks.js).
 //
 // World axes: +x east, +y up, +z south.
 
 import { DEG, clamp, lerp, smoothstep, hex, hash2, valueNoise } from './math.js';
+import { lookOf } from './looks.js';
 
 export const LATITUDE = 34 * DEG; // Southern California
 export const DECLINATION = 19 * DEG; // late July: the long end of summer
@@ -27,27 +29,25 @@ export function moonDirection(hours) {
   return sunDirection(hours - 12 - 1.6, LATITUDE, -6 * DEG);
 }
 
-// Palette keyframes by solar elevation (degrees). Each moment names a light
-// tone and a shade tone directly, the way an illustrator would: a lit face
-// is its local color times `light`, a face in shadow its local color times
-// `shade`. Shadows are a change of hue, not a loss of it.
-const KEYS = [
-  { el: -18, zenith: '#03061c', mid: '#08102e', horizon: '#151c44', sunSide: '#171e48', light: '#1d2356', shade: '#1d2356', glow: '#000000', glowK: 0, cloudLit: '#242b58', cloudShade: '#10163a', seaNear: '#050b28', seaFar: '#121a42' },
-  { el: -9, zenith: '#080e34', mid: '#171e56', horizon: '#30336c', sunSide: '#473a72', light: '#30356f', shade: '#30356f', glow: '#6a4a8a', glowK: 0.15, cloudLit: '#443f78', cloudShade: '#1d214c', seaNear: '#0a1238', seaFar: '#262c66' },
-  { el: -4, zenith: '#111b5a', mid: '#2f3278', horizon: '#76599a', sunSide: '#b86a88', light: '#4c4b8e', shade: '#4c4b8e', glow: '#d27886', glowK: 0.3, cloudLit: '#a57498', cloudShade: '#42427c', seaNear: '#121a58', seaFar: '#665796' },
-  { el: -0.8, zenith: '#1b2b80', mid: '#554a98', horizon: '#d383a0', sunSide: '#f98d60', light: '#665a9e', shade: '#665a9e', glow: '#ff9058', glowK: 0.5, cloudLit: '#f7a58e', cloudShade: '#6e5f9c', seaNear: '#1b2c7c', seaFar: '#b98aa6' },
-  { el: 2.5, zenith: '#1f3590', mid: '#6c5fa6', horizon: '#f0a19c', sunSide: '#ffb069', light: '#ffac7a', shade: '#6e5ca6', glow: '#ffa060', glowK: 0.55, cloudLit: '#ffbd94', cloudShade: '#8a74ae', seaNear: '#1f358a', seaFar: '#d99aa0' },
-  { el: 7, zenith: '#1d43a8', mid: '#4f74c4', horizon: '#f3d7bf', sunSide: '#ffca8e', light: '#ffd29c', shade: '#7676b8', glow: '#ffc080', glowK: 0.4, cloudLit: '#ffe1b8', cloudShade: '#a09cc4', seaNear: '#1a4096', seaFar: '#c9b4b4' },
-  { el: 15, zenith: '#1440ae', mid: '#3474d2', horizon: '#e6eff0', sunSide: '#fbe9cf', light: '#ffeccb', shade: '#7282c8', glow: '#fff0d0', glowK: 0.22, cloudLit: '#fff8ea', cloudShade: '#b0bddf', seaNear: '#123f9c', seaFar: '#8cb4d8' },
-  { el: 30, zenith: '#0d36a8', mid: '#2a6ad4', horizon: '#d5eff8', sunSide: '#e8f4f4', light: '#fff7e8', shade: '#6d84cf', glow: '#ffffff', glowK: 0.12, cloudLit: '#ffffff', cloudShade: '#abc0e5', seaNear: '#0e3e9e', seaFar: '#4a93d6' },
-  { el: 75, zenith: '#0a2f9e', mid: '#1f5fd0', horizon: '#cfeefb', sunSide: '#e4f5fb', light: '#fffbf1', shade: '#6a82d0', glow: '#ffffff', glowK: 0.1, cloudLit: '#ffffff', cloudShade: '#a9bfe6', seaNear: '#0c3a9a', seaFar: '#3c8ad6' },
-].map((k) => {
-  const o = { el: k.el, glowK: k.glowK };
-  for (const key of ['zenith', 'mid', 'horizon', 'sunSide', 'light', 'shade', 'glow', 'cloudLit', 'cloudShade', 'seaNear', 'seaFar']) o[key] = hex(k[key]);
-  return o;
-});
+// Each look's palette keyframes by solar elevation (see looks.js), turned
+// into numbers once.
+const KEY_COLORS = ['zenith', 'mid', 'horizon', 'sunSide', 'light', 'shade', 'glow', 'cloudLit', 'cloudShade', 'seaNear', 'seaFar'];
+const compiled = new WeakMap();
+function keysOf(look) {
+  let keys = compiled.get(look);
+  if (!keys) {
+    keys = look.keys.map((k) => {
+      const o = { el: k.el, glowK: k.glowK };
+      for (const key of KEY_COLORS) o[key] = hex(k[key]);
+      return o;
+    });
+    compiled.set(look, keys);
+  }
+  return keys;
+}
 
-function sample(el) {
+// The palette at elevation `el`, eased between keyframes.
+function sample(KEYS, el) {
   if (el <= KEYS[0].el) return KEYS[0];
   if (el >= KEYS[KEYS.length - 1].el) return KEYS[KEYS.length - 1];
   let i = 0;
@@ -65,12 +65,14 @@ function sample(el) {
 /**
  * Everything the renderer needs to know about one moment of the day.
  * `sky` = { clouds, gulls } from makeSky(); the same sky is used all day.
+ * `look`: a look or its name (looks.js).
  */
-export function skyState(hours, sky = {}) {
+export function skyState(hours, sky = {}, look) {
+  const L = lookOf(look);
   const sunDir = sunDirection(hours);
   const moonDir = moonDirection(hours);
   const sunEl = Math.asin(clamp(sunDir[1], -1, 1)) / DEG;
-  const k = sample(sunEl);
+  const k = sample(keysOf(L), sunEl);
   // Mornings are paler and cooler than evenings.
   const warmth = hours < 12 ? 0.55 : 1;
   const sunSide = k.sunSide.map((v, i) => lerp(k.horizon[i], v, warmth));
@@ -84,7 +86,7 @@ export function skyState(hours, sky = {}) {
   let key = k.light.map((v, i) => Math.max(0, v - k.shade[i]) * sunUp);
   if (sunEl < -3) {
     keyDir = moonDir;
-    const mk = 0.14 * night * moonUp;
+    const mk = L.sky.moon * night * moonUp;
     key = [0.5 * mk, 0.58 * mk, 0.9 * mk];
   }
   // Hemisphere: faces that look up see a little more sky, faces that look
@@ -92,6 +94,7 @@ export function skyState(hours, sky = {}) {
   const amb = k.shade.map((v) => v * 1.04);
   const ground = [k.shade[0] * 0.86, k.shade[1] * 0.82, k.shade[2] * 0.8];
   return {
+    look: L,
     hours,
     sunDir,
     sunEl,
@@ -116,6 +119,8 @@ export function skyState(hours, sky = {}) {
     night,
     lights: smoothstep(1.5, -3.5, sunEl),
     stars: smoothstep(-5, -13, sunEl),
+    // A film's own clock, if it keeps one: stars twinkle by it.
+    t: sky.t,
     moonUp,
     clouds: sky.clouds || [],
     streaks: sky.streaks || [],
@@ -127,14 +132,16 @@ export function skyState(hours, sky = {}) {
 
 // Cumulus that live on the sky dome, in degrees of azimuth and elevation,
 // so they stay put as the camera turns and show up in every reflection.
-// Plus a few long streaks low on the horizon, and gulls.
-export function makeSky(rng, { clouds = [4, 6], streaks = [1, 3], gulls = [0, 4] } = {}) {
+// Plus a few long streaks low on the horizon, and gulls. Where the clouds
+// sit and how big they are is the look's.
+export function makeSky(rng, { clouds = [0, 2], streaks = [1, 3], gulls = [0, 4] } = {}, look) {
+  const C = lookOf(look).cumulus;
   const out = { clouds: [], streaks: [], gulls: [] };
   const n = rng.int(clouds[0], clouds[1]);
   for (let i = 0; i < n; i++) {
     const az = (i / Math.max(1, n)) * 360 + rng.range(-25, 25);
-    const base = rng.range(1.5, 8);
-    const width = rng.range(12, 26);
+    const base = rng.range(C.base[0], C.base[1]);
+    const width = rng.range(C.width[0], C.width[1]);
     const height = width * rng.range(0.26, 0.42);
     const puffs = [];
     // Crown: puffs strung along a domed envelope, bigger toward the middle.
@@ -228,6 +235,7 @@ function evalClouds(S, az, el) {
  * disc: draw sun, moon and gulls (off for soft reflections).
  */
 export function skyColor(S, dx, dy, dz, out, disc = true) {
+  const Y = lookOf(S.look).sky;
   const e = dy > 0 ? dy : 0;
   const sx = S.sunDir[0];
   const sy = S.sunDir[1];
@@ -243,18 +251,19 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
   const hr = Hn[0] + (Hs[0] - Hn[0]) * side;
   const hg = Hn[1] + (Hs[1] - Hn[1]) * side;
   const hb = Hn[2] + (Hs[2] - Hn[2]) * side;
-  // White mist from the horizon, blue layered over it, deepest overhead.
-  const blue = 1 - Math.exp(-e / 0.15);
+  // The horizon's tone sprayed up from the horizon (as high as the look's
+  // mist climbs), blue laid over it, and the zenith's tone overhead.
+  const blue = 1 - Math.exp(-e / Y.mist);
   let r = hr + (M[0] - hr) * blue;
   let g = hg + (M[1] - hg) * blue;
   let b = hb + (M[2] - hb) * blue;
-  const deep = Math.pow(smoothstep(0.16, 0.95, e), 0.85);
+  const deep = Math.pow(smoothstep(Y.deep[0], Y.deep[1], e), Y.deep[2]);
   r += (Z[0] - r) * deep;
   g += (Z[1] - g) * deep;
   b += (Z[2] - b) * deep;
   // Sprayed by hand, not computed: a faint, slow unevenness over the dome.
   const n = valueNoise(dx * 2.3 + e * 1.3 + 7.1, dz * 2.3 - e * 2.1) + 0.5 * valueNoise(dx * 5.7 - 3.3, dz * 5.7 + e * 4.4) - 0.75;
-  const uneven = 1 + n * 0.04 * (0.35 + blue);
+  const uneven = 1 + n * Y.uneven * (0.35 + blue);
   r *= uneven;
   g *= uneven;
   b *= uneven;
@@ -275,7 +284,9 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
     const v = (el - st.el) / st.h;
     const q = u * u + v * v;
     if (q < 1) {
-      const a = 0.55 * smoothstep(1, 0.25, q);
+      let a = 0.55 * smoothstep(1, 0.25, q);
+      // In some looks only a low sun lights them: a clear day has none.
+      if (Y.lowSunStreaks) a *= smoothstep(12, 4, S.sunEl);
       const L = S.cloudLit;
       r += (L[0] * 0.8 + hr * 0.2 - r) * a;
       g += (L[1] * 0.8 + hg * 0.2 - g) * a;
@@ -293,7 +304,14 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
       const d = Math.hypot((az * Math.cos(el * DEG)) / cell - cu - ox, el / cell - cv - oy) * cell;
       const rad = 0.035 + 0.05 * hash2(cu + 5, cv + 9);
       if (d < rad) {
-        const k = S.stars * smoothstep(0.03, 0.2, e) * (0.55 + 0.45 * h);
+        let k = S.stars * smoothstep(0.03, 0.2, e) * (0.55 + 0.45 * h);
+        if (S.t !== undefined) {
+          // Each star shimmers at its own slow rate, more so near the
+          // horizon, where there is more air to look through.
+          const f = 2 + 4 * hash2(cu + 17, cv - 3);
+          const w = Math.sin(S.t * f + 6.283 * hash2(cu - 41, cv + 23)) * (0.6 + 0.4 * Math.sin(S.t * f * 0.37 + h * 20));
+          k *= 1 - (0.16 + 0.3 * (1 - smoothstep(4, 35, el))) * (0.5 + 0.5 * w);
+        }
         r += (0.95 - r) * k;
         g += (0.93 - g) * k;
         b += (0.85 - b) * k;
@@ -342,8 +360,10 @@ export function skyColor(S, dx, dy, dz, out, disc = true) {
       const v = -x * sn + y * c;
       const t = Math.abs(u) / gl.s;
       if (t > 1) continue;
-      const curve = gl.s * (0.34 * t - 0.16 * Math.sin(Math.PI * t));
-      if (Math.abs(v - curve) < gl.s * 0.07 * (1.1 - 0.7 * t)) {
+      // flap: 1 is the gliding "m"; below zero the wingtips beat down.
+      // w thickens the stroke, for pictures with few pixels to spare.
+      const curve = gl.s * (0.34 * t - 0.16 * Math.sin(Math.PI * t)) * (gl.flap ?? 1);
+      if (Math.abs(v - curve) < gl.s * 0.07 * (gl.w ?? 1) * (1.1 - 0.7 * t)) {
         const k = 0.75 * (1 - S.night);
         r += (0.2 - r) * k;
         g += (0.26 - g) * k;

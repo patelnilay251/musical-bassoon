@@ -3,6 +3,7 @@
 
 import { CAST, DOUBLE, SMOOTH, NOREFLECT } from '../mesh.js';
 import { railing } from './common.js';
+import { motion } from './motion.js';
 
 // Lifeguard tower facing -x (the sea), foot at the origin. A square cabin
 // glazed on three sides, a deck in front, a ramp down the back, a flag.
@@ -70,7 +71,10 @@ export function addLifeguardTower(b, M) {
   b.use(M.trim, CAST | SMOOTH);
   b.tube([[0, ry + 0.7, 0], [0, ry + 2.3, 0]], [0.03, 0.025], 5);
   b.use(M.signRed, CAST | DOUBLE);
-  b.quad([0, ry + 2.25, 0], [0, ry + 1.75, 0], [-0.05, ry + 1.8, 0.75], [-0.05, ry + 2.2, 0.72]);
+  const fl = motion.wind > 0 ? motion.wind : 0; // the flag's free edge flutters
+  const fx = fl * 0.09 * Math.sin(3.3 * motion.t);
+  const fz = fl * 0.05 * Math.sin(2.6 * motion.t + 1);
+  b.quad([0, ry + 2.25, 0], [0, ry + 1.75, 0], [-0.05 + fx, ry + 1.8, 0.75 + fz], [-0.05 - fx, ry + 2.2, 0.72 - fz]);
   return { floor: F, top: ry + 0.75 };
 }
 
@@ -113,6 +117,64 @@ export function addTowel(b, M, mat = M.towel) {
   b.object();
   b.use(mat, CAST);
   b.box(-0.45, 0, -0.9, 0.45, 0.025, 0.9);
+}
+
+// Someone's footprints along a path of [x, z] points: left and right feet
+// half a stride apart, pressed into the sand at ground(x), darker where
+// the sand is wet (x below wet(z)), and gone where the swash reaches
+// (x below swash).
+export function addFootprints(b, M, rng, pts, { ground, wet, swash = 1, stride = 1.44, gauge = 0.1 }) {
+  // Round the corners (twice cut), then walk it.
+  let p = pts;
+  for (let n = 0; n < 2; n++) {
+    const q = [p[0]];
+    for (let i = 0; i + 1 < p.length; i++) {
+      const [ax, az] = p[i];
+      const [bx, bz] = p[i + 1];
+      q.push([ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25], [ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75]);
+    }
+    q.push(p[p.length - 1]);
+    p = q;
+  }
+  b.object();
+  let side = 1;
+  let next = 0.3;
+  let walked = 0;
+  for (let i = 0; i + 1 < p.length; i++) {
+    const [ax, az] = p[i];
+    const [bx, bz] = p[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    if (len < 1e-6) continue;
+    const tx = (bx - ax) / len;
+    const tz = (bz - az) / len;
+    while (next <= walked + len) {
+      const u = next - walked;
+      const x = ax + tx * u - tz * side * gauge + rng.range(-0.02, 0.02);
+      const z = az + tz * u + tx * side * gauge + rng.range(-0.02, 0.02);
+      next += stride / 2 + rng.range(-0.05, 0.05);
+      side = -side;
+      if (x < swash) continue;
+      b.use(x < wet(z) ? M.printWet : M.print, 0);
+      footprint(b, x, ground(x) + 0.007, z, Math.atan2(tz, tx) + side * 0.12 + rng.range(-0.06, 0.06));
+    }
+    walked += len;
+  }
+}
+
+// One print, heel to toe along heading `a` (radians from +x toward +z):
+// a narrow heel and a wider ball, as a flat fan facing up.
+function footprint(b, x, y, z, a) {
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  const n = 12;
+  const pt = (i) => {
+    const th = (i / n) * Math.PI * 2;
+    const u = Math.cos(th) * 0.13; // along the foot
+    const w = -Math.sin(th) * 0.045 * (1 + 0.35 * Math.cos(th)); // across: wider at the toe
+    return [x + u * c - w * s, y, z + u * s + w * c];
+  };
+  const mid = [x + 0.015 * c, y, z + 0.015 * s];
+  for (let i = 0; i < n; i++) b.tri(mid, pt(i), pt(i + 1));
 }
 
 // Pier from x = x0 (land) to x = x1 (sea) along z = zc, deck at `deck`,
@@ -191,13 +253,17 @@ export function addFoam(b, M, { z0, z1, step = 1.5, xa, xb, y = 0.012, mat = M.f
 
 // A line of breaking waves parallel to the shore, painted as a chain of
 // long tapered strokes with gaps, each riding a little in or out.
-export function addBreakers(b, M, rng, { x, z0, z1, width = 0.8, len = [6, 22], gap = [2, 9], y = 0.012, mat = M.foam }) {
+// surge: how far (m) the line runs in and back with the swell, once every
+// `period` seconds, `lag` radians behind the line further out.
+export function addBreakers(b, M, rng, { x, z0, z1, width = 0.8, len = [6, 22], gap = [2, 9], y = 0.012, mat = M.foam, surge = 0, period = 7.5, lag = 0 }) {
   b.use(mat, NOREFLECT);
+  const sw = motion.wind > 0 ? surge : 0;
   let z = z0 + rng.range(0, gap[1]);
   while (z < z1) {
     const L = rng.range(len[0], len[1]);
-    const W = width * rng.range(0.5, 1.2);
-    const xc = x + rng.range(-1.2, 1.2);
+    const ph = ((2 * Math.PI) / period) * motion.t - lag - z * 0.012;
+    const W = width * rng.range(0.5, 1.2) * (sw ? 1 + 0.35 * Math.sin(ph + 1.2) : 1);
+    const xc = x + rng.range(-1.2, 1.2) + sw * Math.sin(ph);
     const bow = rng.range(-0.6, 0.6);
     const n = Math.max(4, Math.round(L / 1.2));
     let prev = null;

@@ -5,8 +5,8 @@
 import { clamp } from './math.js';
 
 export const DAY = [
-  { place: 'motel', to: 7.6 },
-  { place: 'boulevard', to: 9.2 }, // breakfast at the diner
+  { place: 'motel', to: 8.2 },
+  { place: 'boulevard', to: 9.2 }, // breakfast at the diner, from a quarter past eight
   { place: 'house', to: 12.6 }, // a morning at the house on the point
   { place: 'beach', to: 17.2 },
   { place: 'marina', to: 19.7 }, // out on the red sloop, back by dusk
@@ -26,7 +26,9 @@ export function propsAt(place, hours) {
   const car = whereIs(hours) === place;
   switch (place) {
     case 'motel':
-      return { car, noVacancy: hours >= 20.5 || hours < 5.5 };
+      // The last room goes when the visitor gets back for the night, and
+      // their window stays lit until a little before midnight.
+      return { car, noVacancy: hours >= 20.8 || hours < 5.5, roomLight: hours >= 20.85 && hours < 23.7 ? 1 : 0 };
     case 'boulevard':
       return { car };
     case 'beach': {
@@ -36,6 +38,9 @@ export function propsAt(place, hours) {
         towel: there,
         umbrella: there ? 'open' : null,
         board: hours >= 13.1 && hours < 15.1 ? 'gone' : there ? 'sand' : 'rack',
+        // Footprints down to the water, and back; the evening tide and
+        // the wind have them by morning.
+        prints: hours >= 13.1 && hours < 23 ? (hours >= 15.1 ? 2 : 1) : 0,
       };
     }
     case 'house': {

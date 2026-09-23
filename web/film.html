@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Paloma Bay: the attract mode</title>
+<style>
+  :root {
+    --night: #070920;
+    --ink: rgba(246, 240, 226, 0.9);
+    --ink-soft: rgba(246, 240, 226, 0.55);
+    --font: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--night);
+    color: var(--ink);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    min-height: 100vh;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    padding: max(4vh, env(safe-area-inset-top)) 4vw max(4vh, env(safe-area-inset-bottom));
+  }
+  .inner { width: min(1536px, 92vw, calc(74vh * 16 / 9)); }
+  video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  }
+  .caption {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px 28px;
+    margin-top: 22px;
+  }
+  h1 {
+    margin: 0;
+    font-weight: 400;
+    font-style: italic;
+    font-size: clamp(22px, 2.6vw, 32px);
+    letter-spacing: -0.005em;
+  }
+  p {
+    margin: 8px 0 0;
+    max-width: 40em;
+    color: var(--ink-soft);
+    font-size: clamp(14px, 1.2vw, 16px);
+    line-height: 1.6;
+  }
+  nav {
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  nav a {
+    color: var(--ink-soft);
+    text-decoration: none;
+    margin-left: 1.8em;
+  }
+  nav a:first-child { margin-left: 0; }
+  nav a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <div class="inner">
+    <video controls playsinline preload="metadata" poster="film/poster.png" src="film/paloma-bay.mp4"></video>
+    <div class="caption">
+      <div>
+        <h1>Paloma Bay, the attract mode</h1>
+        <p>An arcade game from a summer that never happened. Somebody drops in a coin, presses start, and plays the visitor, who is never seen: one day in town, from before dawn at the motel to the last room going. Painted by the same engine as the town, at 384&times;216 in 512 colors, with its music and sound made in code.</p>
+      </div>
+      <nav><a href="index.html">The town</a><a href="book.html">Postcards</a><a href="day.html">One day</a></nav>
+    </div>
+  </div>
+</main>
+</body>
+</html>

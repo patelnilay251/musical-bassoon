@@ -10,8 +10,8 @@ export const NAME = 'The House';
 export const VIEWS = ['pool', 'front', 'sunset'];
 export const DEFAULT_PROPS = HOUSE_PROPS;
 
-export function build(props = {}) {
-  const world = buildWorld(DEFAULT_SEED, props);
+export function build(props = {}, look) {
+  const world = buildWorld(DEFAULT_SEED, props, look);
   const L = world.layout;
   const p = L.pool;
   const pcz = (p.z0 + p.z1) / 2;

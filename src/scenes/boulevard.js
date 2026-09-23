@@ -14,7 +14,10 @@ import { addFanPalm } from '../world/fanpalm.js';
 import { addCar, parkedCar } from '../world/cars.js';
 import { hills, lampPost } from '../world/common.js';
 import { neonWord, addBoard } from '../world/signs.js';
+import { addMeter, addHydrant, addNewsBox } from '../world/street.js';
+import { addFlowerBush } from '../world/plants.js';
 import { level } from '../camera.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Boulevard';
 // Compositions, the first one the place's hero.
@@ -38,10 +41,10 @@ const cr = Math.cos(ROT);
 const sr = Math.sin(ROT);
 const W = ([x, y, z]) => [x * cr + z * sr, y, -x * sr + z * cr];
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
   const light = (p, c, r, k) => lights.push({ p: W(p), c, r, k });
@@ -64,8 +67,10 @@ export function build(props = {}) {
     b.quad([x1, gy(x1) + lo, z0], [x1, gy(x1) + lo, z1], [x1, gy(x1) + h, z1], [x1, gy(x1) + h, z0]);
   };
   const [cx0, cx1] = CROSS;
-  // Roadway, the cross street, and the coast road at the bottom.
-  flat(M.asphalt, X0 - 16, X1, -12, 12);
+  // Roadway, the cross street, and the coast road at the bottom. Traffic
+  // wears the middle of each lane of the boulevard.
+  materials[M.road].lanes = { ax: sr, az: cr, centers: [-7.9, -3.13, 3.13, 7.9] };
+  flat(M.road, X0 - 16, X1, -12, 12);
   flat(M.asphalt, cx0, cx1, -FAR, -12);
   flat(M.asphalt, cx0, cx1, 12, FAR);
   flat(M.asphalt, X0 - 16, X0, -FAR, -12);
@@ -158,28 +163,99 @@ export function build(props = {}) {
   }
   diner(b, M, -1, cx0 - 31, cx0 - 2, light);
 
+  // ---- flowering bushes in planters along the shop fronts
+  if (look.flowers) {
+    const fl = sub(20);
+    for (const s of [-1, 1]) {
+      for (let x = X1 - 30 + (s > 0 ? 9 : 0); x > -240; x -= 23) {
+        if (x > cx0 - 6 && x < cx1 + 6) continue;
+        const r = fl.fork(Math.round(x * 10) + (s > 0 ? 7 : 0));
+        if (r.chance(0.35)) continue;
+        const z = s * 16.3;
+        b.use(M.curb, CAST);
+        b.box(x - 1.4, gy(x) + 0.15, z - 0.55, x + 1.4, gy(x) + 0.55, z + 0.55);
+        for (const dxo of [-0.7, 0.7]) {
+          b.push();
+          b.translate(x + dxo, gy(x) + 0.55, z);
+          addFlowerBush(b, M, r.fork(dxo > 0 ? 2 : 1), { r: 0.62, h: 0.62, kind: r.pick(['bougainvillea', 'oleander', 'hibiscus']) });
+          b.pop();
+        }
+      }
+    }
+  }
+
+  // ---- the curb: a meter for every space, hydrants near the corners and
+  // now and then down the hill, papers by the diner door
+  const lamps = new Set();
+  for (let x = X1 - 26; x > X0 + 20; x -= 48) lamps.add(Math.round(x));
+  const kerb = (fn, x, s) => {
+    b.push();
+    b.translate(x, gy(x) + 0.15, s * 12.45);
+    if (s > 0) b.rotateY(Math.PI); // face the road
+    fn();
+    b.pop();
+  };
+  for (const s of [-1, 1]) {
+    for (let x = X1 - 12 + 2.9; x > -260; x -= 6.4) {
+      if (x > cx0 - 6 && x < cx1 + 6) continue;
+      if (s > 0 && Math.abs(x - (cx0 - 15)) < 14) continue;
+      if ([...lamps].some((l) => Math.abs(l - x) < 0.8)) continue;
+      kerb(() => addMeter(b, M), x, s);
+    }
+    for (const x of [cx0 - 8.2, cx1 + 8.2, -104.3, 121.7, -212.5]) {
+      if (!(s > 0 && Math.abs(x - (cx0 - 15)) < 14)) kerb(() => addHydrant(b, M), x, s);
+    }
+  }
+  for (const [x, paint] of [
+    [cx0 - 28.6, M.doorBlue],
+    [cx0 - 27.9, M.doorYellow],
+  ]) {
+    b.push();
+    b.translate(x, gy(x) + 0.15, -15.9);
+    addNewsBox(b, M, paint);
+    b.pop();
+  }
+
   // ---- the traffic light at the corner, facing uphill
   signal(b, M, cx1 + 1.2, -12.8, light);
 
   // ---- parked cars, and the yellow convertible outside the diner
   const cr2 = sub(4);
   const cars = [];
+  let slot = 0;
   for (const s of [-1, 1]) {
     for (let x = X1 - 12; x > -260; x -= 6.4) {
       if (x > cx0 - 5 && x < cx1 + 5) continue;
+      const r = cr2.fork(++slot); // one stream per space along the curb
       const visitor = s < 0 && Math.abs(x - (cx0 - 14)) < 3.2;
       // Nothing parked right under the diner view's feet.
       if (s > 0 && Math.abs(x - (cx0 - 15)) < 14) continue;
-      if (visitor ? !P.car : !cr2.chance(0.32)) continue;
+      if (visitor ? !P.car || P.drive : !r.chance(0.32)) continue;
       // Parked with the traffic: downhill on the right, uphill on the left.
       b.push();
       b.translate(x, gy(x), s * 10.9);
-      b.rotateY((s < 0 ? Math.PI : 0) + cr2.range(-0.02, 0.02));
+      b.rotateY((s < 0 ? Math.PI : 0) + r.range(-0.02, 0.02));
       b.rotateZ((s < 0 ? -1 : 1) * Math.atan(GRADE));
       if (visitor) addCar(b, M, { paint: M.visitor });
-      else parkedCar(b, M, cr2);
+      else parkedCar(b, M, r, { lod: x > -20 && x < 95 ? 1 : 0.3 });
       b.pop();
       cars.push({ x, s, visitor });
+    }
+  }
+  // The visitor's car on the move, downhill: { x, z, lit } in the road frame.
+  if (P.drive) {
+    const { x, z, yaw = 0, lit } = P.drive;
+    b.push();
+    b.translate(x, gy(x), z);
+    b.rotateY(Math.PI + yaw);
+    b.rotateZ(-Math.atan(GRADE));
+    addCar(b, M, { paint: M.visitor, lit });
+    b.pop();
+    const c = -Math.cos(yaw);
+    const s = Math.sin(yaw);
+    if (lit) {
+      light([x + c * 5, gy(x + c * 5) + 0.8, z + s * 5], [1, 0.92, 0.72], 4.5, 1.2);
+      light([x - c * 3, gy(x - c * 3) + 0.6, z - s * 3], [1, 0.2, 0.15], 1.4, 0.6);
     }
   }
   b.pop();
@@ -198,7 +274,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(7), { clouds: [3, 5], streaks: [2, 4], gulls: [0, 3] }),
+    look,
+    sky: makeSky(sub(7), { clouds: look.clouds.boulevard, streaks: [2, 4], gulls: [0, 3] }, look),
     seaLevel: SEA,
     lights,
     shadowBox: {
@@ -206,6 +283,9 @@ export function build(props = {}) {
       max: [Math.max(...box.map((p) => p[0])), 28, Math.max(...box.map((p) => p[2]))],
     },
     layout: { palms, cars, cross: CROSS },
+    // For compositions along the road: road frame -> world, the ground,
+    // and how far road headings are turned from compass headings.
+    road: { toWorld: W, ground: gy, turn: AZ - 270 },
     views: {
       sunset: view([70, gy(70) + 1.6, -1.2], 270, 26, 0.34),
       diner: view([cx0 - 15, gy(cx0 - 15) + 1.62, 15], 0, 36, 0.3),

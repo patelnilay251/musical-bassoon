@@ -15,7 +15,9 @@ import { addCar, parkedCar } from '../world/cars.js';
 import { addLounger, addUmbrella, addLadder, addSideTable } from '../world/props.js';
 import { hills, railing, lampPost } from '../world/common.js';
 import { addMotelSign, neonWord } from '../world/signs.js';
+import { addFlowerBush, plantBushes } from '../world/plants.js';
 import { level } from '../camera.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Motel';
 // Compositions, the first one the place's hero.
@@ -23,7 +25,8 @@ export const VIEWS = ['front', 'walkway', 'pool', 'road'];
 const SEED = 1979;
 const SEA = -4;
 
-export const DEFAULT_PROPS = { car: true, noVacancy: false };
+// roomLight: the visitor's window, 0 (dark) to 1 (lit).
+export const DEFAULT_PROPS = { car: true, noVacancy: false, roomLight: 0 };
 
 const ROOM = 4; // room width along z
 const N = 11; // rooms per floor
@@ -36,11 +39,12 @@ const WALK = 1.9; // walkway depth, in front of the upper rooms
 const FAR = 6000;
 
 const DOORS = ['doorRed', 'doorYellow', 'doorBlue', 'doorGreen', 'doorPink'];
+const VISITOR_ROOM = 7; // z 6..10, in front of the third stall
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -64,14 +68,15 @@ export function build(props = {}) {
   }
   // Picket railing along the walkway: its shadow is the motel's pattern.
   pickets(b, M, -WALK + 0.1, F1, Z0 + 0.1, Z1 - 0.1);
-  // Rooms.
+  // Rooms. The visitor has the ground-floor room behind their stall.
   for (const [floor, y0] of [
     [0, 0],
     [1, F1],
   ]) {
     for (let k = 0; k < N; k++) {
       const z = Z0 + k * ROOM;
-      room(b, M, z, y0, M[DOORS[(k + floor * 2) % DOORS.length]], lights);
+      const glass = floor === 0 && k === VISITOR_ROOM ? M.visitorGlass : M.roomGlass;
+      room(b, M, z, y0, M[DOORS[(k + floor * 2) % DOORS.length]], glass, lights);
     }
   }
   // End walls: a stripe of color at the south corner, windows north.
@@ -143,28 +148,46 @@ export function build(props = {}) {
   const cr = sub(7);
   const cars = [];
   for (let k = 0; k < 6; k++) {
+    // One stream per stall, so the others never change when the visitor
+    // comes or goes.
+    const r = cr.fork(k + 1);
     const zc = stall0 + k * 3 + 1.5;
     const visitor = k === 2;
-    if (visitor ? !P.car : !cr.chance(0.5)) continue;
+    if (visitor ? !P.car || P.carAt : !r.chance(0.5)) continue;
     b.push();
-    b.translate(-5.2 + cr.range(-0.15, 0.15), 0, zc + cr.range(-0.12, 0.12));
-    b.rotateY(cr.range(-0.03, 0.03));
+    b.translate(-5.2 + r.range(-0.15, 0.15), 0, zc + r.range(-0.12, 0.12));
+    b.rotateY(r.range(-0.03, 0.03));
     if (visitor) addCar(b, M, { paint: M.visitor });
-    else parkedCar(b, M, cr);
+    else parkedCar(b, M, r);
     b.pop();
     cars.push({ z: zc, visitor });
+  }
+  // The visitor's car on its way somewhere: { x, z, yaw, lit } (yaw turns
+  // the nose from +x toward -z).
+  if (P.carAt) {
+    const { x, y = 0, z, yaw, lit } = P.carAt;
+    b.push();
+    b.translate(x, y, z);
+    b.rotateY(yaw);
+    addCar(b, M, { paint: M.visitor, lit });
+    b.pop();
+    // Headlights throw a pool of light ahead; the taillights a red glow.
+    const c = Math.cos(yaw);
+    const s = -Math.sin(yaw);
+    if (lit) lights.push({ p: [x + c * 5, 0.8, z + s * 5], c: [1, 0.92, 0.72], r: 4.5, k: 1.2 }, { p: [x - c * 3, 0.6, z - s * 3], c: [1, 0.2, 0.15], r: 1.4, k: 0.6 });
   }
   lights.push(lampPost(b, M, LX0 + 1.2, -12, 0, { height: 4.6, reach: 7 }));
   lights.push(lampPost(b, M, LX0 + 1.2, 30, 0, { height: 4.6, reach: 7 }));
 
   // ---- the pool, behind a low white wall
-  const pool = addPool(b, M, sub(3), lights);
+  const pool = addPool(b, M, sub(3), lights, look);
 
   // ---- the highway, sidewalks, and the sea wall across the road
   b.use(M.sidewalk, CAST);
   b.box(-32, 0, -FAR, LX0, 0.15, FAR, 'ny');
   b.box(-49, 0, -FAR, -46, 0.15, FAR, 'ny');
-  b.use(M.asphalt, 0);
+  materials[M.road].lanes = { ax: 1, az: 0, centers: [-42.27, -35.85] };
+  b.use(M.road, 0);
   b.quad([-46, 0, -FAR], [-46, 0, FAR], [-32, 0, FAR], [-32, 0, -FAR]);
   b.use(M.lineYellow, 0);
   for (const x of [-39.2, -38.92]) b.box(x, 0, -FAR, x + 0.12, 0.012, FAR, 'ny');
@@ -194,6 +217,29 @@ export function build(props = {}) {
   b.rotateY(-Math.PI / 2 + 0.35);
   lights.push(...addMotelSign(b, M, { noVacancy: P.noVacancy }));
   b.pop();
+
+  // ---- flowers: a planter of bougainvillea along the pool wall where it
+  // faces the lot, and a ring of them round the foot of the sign
+  if (look.flowers) {
+    const fr = sub(20);
+    b.use(M.curb, CAST);
+    b.box(-25.7, 0, -20.6, -24.25, 0.32, 0.4);
+    b.use(M.lawnTown, 0);
+    b.box(-25.6, 0.32, -20.5, -24.3, 0.34, 0.3, 'ny nx px pz nz');
+    plantBushes(b, M, fr.fork(1), [-25.2, -24.8, -20, -0.2], 6, { gap: 2.4, ground: () => 0.3, size: [0.75, 1.0], kinds: ['bougainvillea', 'bougainvillea', 'hibiscus'] });
+    b.use(M.curb, CAST);
+    b.push();
+    b.translate(sign.x, 0.15, sign.z);
+    b.cylinder(1.9, 1.9, 0, 0.36, 18);
+    b.pop();
+    for (let k = 0; k < 4; k++) {
+      const a = (k / 4) * Math.PI * 2 + 0.5;
+      b.push();
+      b.translate(sign.x + Math.cos(a) * 1.25, 0.5, sign.z + Math.sin(a) * 1.25);
+      addFlowerBush(b, M, fr.fork(10 + k), { r: 0.62, h: 0.6, kind: k % 2 ? 'lantana' : 'bougainvillea' });
+      b.pop();
+    }
+  }
 
   // ---- palms: a row of fan palms on each sidewalk, two coconuts by the pool
   const pr = sub(8);
@@ -239,10 +285,12 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(6), { clouds: [3, 5], gulls: [1, 4] }),
+    look,
+    sky: makeSky(sub(6), { clouds: look.clouds.motel, gulls: [1, 4] }, look),
     seaLevel: SEA,
     pool,
     lights,
+    emitScale: { visitorGlass: P.roomLight },
     shadowBox: { min: [-60, -1, -45], max: [DEPTH + 2, 24, 50] },
     layout,
     views: {
@@ -257,7 +305,7 @@ export function build(props = {}) {
 
 // One room: a colored door, a window with a sill, an air conditioner
 // under it, and a lamp by the door.
-function room(b, M, z, y0, door, lights) {
+function room(b, M, z, y0, door, glass, lights) {
   const dz0 = z + 0.55;
   const dz1 = dz0 + 0.95;
   b.object();
@@ -268,7 +316,7 @@ function room(b, M, z, y0, door, lights) {
   const wz0 = z + 1.95;
   const wz1 = z + 3.6;
   b.object();
-  b.use(M.glass, CAST);
+  b.use(glass, CAST);
   b.quad([-0.01, y0 + 1.0, wz1], [-0.01, y0 + 2.25, wz1], [-0.01, y0 + 2.25, wz0], [-0.01, y0 + 1.0, wz0]);
   b.use(M.frame, CAST);
   b.box(-0.07, y0 + 0.92, wz0 - 0.06, 0, y0 + 1.0, wz1 + 0.06);
@@ -289,7 +337,7 @@ function pickets(b, M, x, y, z0, z1) {
   for (let z = z0 + 0.08; z < z1; z += 0.16) b.box(x - 0.015, y + 0.1, z - 0.015, x + 0.015, y + 0.96, z + 0.015, 'py ny');
 }
 
-function addPool(b, M, rng, lights) {
+function addPool(b, M, rng, lights, look) {
   const DECK = 0.15;
   const px0 = -20.5;
   const px1 = -11.5;
@@ -355,9 +403,9 @@ function addPool(b, M, rng, lights) {
     z1: pz1,
     waterY: WATER,
     floorY: FLOOR,
-    tile: hex('#c4f0f2'),
+    tile: hex(look.pool.tile),
     lane: hex('#2a5d9c'),
-    water: hex('#12a4d4'),
+    water: hex(look.pool.water),
     glow: hex('#2fb8d6'),
     waves: [
       { kx: 3.1, kz: 0.9, w: 1.0, p: rng.range(0, 6.28), a: 0.012 },

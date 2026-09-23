@@ -16,6 +16,8 @@ import { hills, railing, lampPost } from '../world/common.js';
 import { addSailboat, addMotorYacht, addLighthouse } from '../world/boats.js';
 import { neonWord } from '../world/signs.js';
 import { level } from '../camera.js';
+import { motion, phase } from '../world/motion.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Marina';
 // Compositions, the first one the place's hero.
@@ -29,10 +31,10 @@ const LH = { x: BW, z: 118 }; // lighthouse
 
 export const DEFAULT_PROPS = { car: true, sloop: 'in' };
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -101,6 +103,9 @@ export function build(props = {}) {
   // ---- docks, fingers, and the boats in their slips
   const br = sub(6);
   const boats = [];
+  let slot = 0;
+  let away = null; // the red sloop, when it is out
+  let home = null; // and where it lies in its slip
   const slip = 5.6;
   const finger = 11;
   for (const [di, zd] of DOCKS.entries()) {
@@ -127,20 +132,28 @@ export function build(props = {}) {
           b.cylinder(0.2, 0.18, 0, 4.2, 8);
           b.pop();
         }
-        // The boat in the slip beside this finger.
+        // The boat in the slip beside this finger, from the slip's own
+        // stream, so no boat changes when another one sails.
         const xb = xf - slip / 2;
         if (xb < -94) continue;
+        const r = br.fork(++slot);
         const sloop = di === 1 && s > 0 && k === 3;
-        if (sloop ? P.sloop !== 'in' : !br.chance(0.8)) continue;
-        const r = br.fork(boats.length + 1);
+        if (!sloop && !r.chance(0.8)) continue;
         const kind = sloop ? 'sail' : r.chance(0.68) ? 'sail' : 'motor';
         const L = kind === 'sail' ? r.range(8.5, 11.5) : r.range(10, 12.8);
         // Bow in, a little short of the main dock.
         const zc = zd + s * (1.8 + L / 2);
+        const jx = r.range(-0.2, 0.2);
+        const yaw = (s > 0 ? Math.PI / 2 : -Math.PI / 2) + r.range(-0.03, 0.03);
+        if (sloop) home = { x: xb + jx, z: zc, yaw };
+        if (sloop && P.sloop !== 'in') {
+          away = { r, L };
+          continue;
+        }
         b.push();
-        b.translate(xb + r.range(-0.2, 0.2), 0, zc);
-        b.rotateY(s > 0 ? Math.PI / 2 : -Math.PI / 2);
-        b.rotateY(r.range(-0.03, 0.03));
+        b.translate(xb + jx, 0, zc);
+        b.rotateY(yaw);
+        bob(b, slot, xb, zc);
         boat(b, M, r, kind, sloop, L);
         b.pop();
         boats.push({ x: xb, z: zc, kind });
@@ -159,7 +172,18 @@ export function build(props = {}) {
     b.push();
     b.translate(x, 0, zm);
     b.rotateY(Math.PI + r.range(-0.3, 0.3));
+    bob(b, 900 + i, x, zm);
     boat(b, M, r, r.chance(0.8) ? 'sail' : 'motor', false, r.range(9, 13));
+    b.pop();
+  }
+  // The red sloop under way: { x, z, yaw, sails, boom } (see addSailboat).
+  if (away && P.sloopAt) {
+    const { x, z, yaw, sails = 0, boom = 0 } = P.sloopAt;
+    b.push();
+    b.translate(x, 0, z);
+    b.rotateY(yaw);
+    bob(b, 77, x, z, 1.8);
+    boat(b, M, away.r, 'sail', true, away.L, { sails, boom });
     b.pop();
   }
 
@@ -179,7 +203,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(9), { clouds: [3, 5], gulls: [2, 6] }),
+    look,
+    sky: makeSky(sub(9), { clouds: look.clouds.marina, gulls: [2, 6] }, look),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {
@@ -195,7 +220,7 @@ export function build(props = {}) {
     },
     lights,
     shadowBox: { min: [-235, -3, -90], max: [48, 22, 135] },
-    layout: { boats, car, lighthouse: LH, docks: DOCKS },
+    layout: { boats, car, lighthouse: LH, docks: DOCKS, sloop: home },
     views: {
       harbor: level([23.0, QUAY + 3.9 + 1.6, 1], 246, 36, 0.52),
       slips: level([-95.2, DOCK + 1.55, -30], 88, 36, 0.36),
@@ -204,6 +229,17 @@ export function build(props = {}) {
     },
     hero: 'harbor',
   };
+}
+
+// Boats ride the harbor's slow swell: a little heave, pitch and roll, each
+// out of step with its neighbors. At rest unless the motion clock runs.
+function bob(b, i, x, z, amp = 1) {
+  if (!(motion.wind > 0)) return;
+  const t = motion.t;
+  const ph = phase(i, x, z);
+  b.translate(0, amp * 0.055 * Math.sin(0.9 * t + ph), 0);
+  b.rotateX(amp * 0.022 * Math.sin(0.7 * t + ph * 1.7));
+  b.rotateZ(amp * 0.012 * Math.sin(0.8 * t + ph * 0.6));
 }
 
 const HULLS = [
@@ -216,9 +252,9 @@ const HULLS = [
   ['hullRed', 'hull'],
 ];
 
-function boat(b, M, r, kind, sloop, L) {
+function boat(b, M, r, kind, sloop, L, rig = {}) {
   const [paint, boot] = sloop ? ['hull', 'hullRed'] : r.pick(HULLS);
-  if (kind === 'sail') addSailboat(b, M, r, { L, paint: M[paint], boot: M[boot], cover: sloop ? M.doorRed : r.pick([M.sailCover, M.sailCover, M.doorGreen, M.signNavy]) });
+  if (kind === 'sail') addSailboat(b, M, r, { L, paint: M[paint], boot: M[boot], cover: sloop ? M.doorRed : r.pick([M.sailCover, M.sailCover, M.doorGreen, M.signNavy]), ...rig });
   else addMotorYacht(b, M, r, { L, paint: M[paint === 'hullNavy' ? 'hull' : paint], boot: M[boot === 'hull' ? 'hullNavy' : boot] });
 }
 

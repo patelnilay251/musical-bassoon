@@ -3,6 +3,7 @@
 // places it with the builder's transform stack.
 
 import { CAST, DOUBLE, SMOOTH } from '../mesh.js';
+import { motion, phase } from './motion.js';
 
 // Lounger: length along local +z (head at z = 0), standing on y = 0.
 export function addLounger(b, M, { towel = false, book = false } = {}) {
@@ -71,14 +72,25 @@ export function addUmbrella(b, M, open = true, [ca, cb] = [M.canvasA, M.canvasB]
     const R = 1.45;
     const apex = 2.62;
     const rim = 2.16;
+    // In a breeze the canopy breathes: its ribs lift and drop out of step
+    // and the valance swings out and back.
+    const w = motion.wind > 0 ? motion.wind : 0;
+    const [wx, , wz] = b.xf([0, 0, 0]);
+    const ph = phase(5, wx, wz);
+    const rib = (k) => {
+      const a = (k / n) * Math.PI * 2;
+      const y = rim + w * 0.035 * Math.sin(3.4 * motion.t + ph + k * 2.1);
+      const out = 1 + w * 0.03 * Math.sin(2.7 * motion.t + ph * 1.7 + k * 1.3);
+      return [R * Math.cos(a), y, -R * Math.sin(a), out];
+    };
     for (let i = 0; i < n; i++) {
-      const a0 = (i / n) * Math.PI * 2;
-      const a1 = ((i + 1) / n) * Math.PI * 2;
-      const p0 = [R * Math.cos(a0), rim, -R * Math.sin(a0)];
-      const p1 = [R * Math.cos(a1), rim, -R * Math.sin(a1)];
+      const [x0, y0, z0, o0] = rib(i);
+      const [x1, y1, z1, o1] = rib(i + 1);
+      const p0 = [x0, y0, z0];
+      const p1 = [x1, y1, z1];
       b.use(i % 2 ? ca : cb, CAST | DOUBLE);
       b.tri([0, apex, 0], p0, p1);
-      b.quad(p0, [p0[0], rim - 0.15, p0[2]], [p1[0], rim - 0.15, p1[2]], p1);
+      b.quad(p0, [x0 * o0, y0 - 0.15, z0 * o0], [x1 * o1, y1 - 0.15, z1 * o1], p1);
     }
     b.use(M.pole, CAST | SMOOTH);
     b.push();

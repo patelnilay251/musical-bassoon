@@ -62,7 +62,7 @@ export function addMotelSign(b, M, { word = 'MOTEL', noVacancy = false } = {}) {
     b.translate(0, 0, pz);
     stacked(b, M, word, pt - 0.32, 0.9, 0.24, { paint: M.signCream, neon: M.neonPink, stroke: 0.19 });
     b.pop();
-    lights.push({ p: b.xf([0, (pt + pb) / 2, s * 1.4]), c: [1.0, 0.36, 0.66], r: 5, k: 1.1 });
+    lights.push({ p: b.xf([0, (pt + pb) / 2, s * 1.4]), c: [1.0, 0.36, 0.66], r: 5, k: 1.1, emit: 'neonPink' });
   }
   // The star on a short mast.
   b.use(M.trim, CAST | SMOOTH);
@@ -79,7 +79,7 @@ export function addMotelSign(b, M, { word = 'MOTEL', noVacancy = false } = {}) {
     b.tube(pts, pts.map(() => 0.035), 5);
   }
   b.pop();
-  lights.push({ p: b.xf([0, pt + 1.55, 0.8]), c: [1.0, 0.9, 0.7], r: 3, k: 0.7 });
+  lights.push({ p: b.xf([0, pt + 1.55, 0.8]), c: [1.0, 0.9, 0.7], r: 3, k: 0.7, emit: 'neonWhite' });
   // VACANCY, and the NO beside it.
   const vy0 = 3.15;
   const vy1 = 3.95;
@@ -103,7 +103,7 @@ export function addMotelSign(b, M, { word = 'MOTEL', noVacancy = false } = {}) {
     neonWord(b, M, 'NO', { size: 0.42, paint: M.signCream, neon: noVacancy ? M.neonRed : null, dark: M.signCream, stroke: 0.085 });
     b.pop();
     b.pop();
-    lights.push({ p: b.xf([0, 3.5, s * 1.1]), c: [1.0, 0.3, 0.22], r: 3.2, k: 0.9 });
+    lights.push({ p: b.xf([0, 3.5, s * 1.1]), c: [1.0, 0.3, 0.22], r: 3.2, k: 0.9, emit: 'neonRed' });
   }
   return lights;
 }

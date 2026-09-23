@@ -8,6 +8,7 @@ import { level, fit } from '../src/camera.js';
 import { DEG, mat4LookAt, mat4Perspective, mat4Mul } from '../src/math.js';
 import { glyphs } from '../src/world/font.js';
 import { createService } from '../web/service.js';
+import { LOOK_NAMES } from '../src/looks.js';
 
 function checksum(mesh) {
   let s = 0;
@@ -54,6 +55,33 @@ test('props move the traces, never the town', () => {
     const without = buildPlace(id, { car: false });
     assert.ok(without.mesh.count < withCar.mesh.count, `${id}: the car did not leave`);
   }
+});
+
+// The mesh without something is the mesh with it, one run of triangles cut out.
+function cutFrom(whole, part) {
+  const a = whole.mesh.pos;
+  const b = part.mesh.pos;
+  let p = 0;
+  while (p < b.length && a[p] === b[p]) p++;
+  let q = 0;
+  while (q < b.length - p && a[a.length - 1 - q] === b[b.length - 1 - q]) q++;
+  return p + q === b.length && b.length < a.length;
+}
+
+test('the visitor coming and going moves nothing else in town', () => {
+  // Every parked car and every boat draws from a stream of its own, so the
+  // visitor's car (or the red sloop) is the only thing that changes.
+  for (const id of ORDER) assert.ok(cutFrom(buildPlace(id, { car: true }), buildPlace(id, { car: false })), `${id}: taking the car away changed something else`);
+  assert.ok(cutFrom(buildPlace('marina', { sloop: 'in' }), buildPlace('marina', { sloop: 'out' })), 'the sloop leaving changed another boat');
+});
+
+test('the sloop under way is the same boat that lies in the slip', () => {
+  const inSlip = buildPlace('marina', { sloop: 'in' });
+  const home = inSlip.layout.sloop;
+  const away = buildPlace('marina', { sloop: 'out', sloopAt: { ...home } });
+  assert.equal(away.mesh.count, inSlip.mesh.count);
+  const sum = (m) => m.pos.reduce((acc, v) => acc + v, 0);
+  assert.ok(Math.abs(sum(away.mesh) - sum(inSlip.mesh)) < 1e-3 * away.mesh.count);
 });
 
 test('the boulevard is laid out on the midsummer sunset', () => {
@@ -125,6 +153,24 @@ test('the sign painter knows every letter the town uses', () => {
   for (const w of words) for (const ch of w.replace(/ /g, '')) assert.ok(glyphs.includes(ch), `no glyph for ${ch}`);
 });
 
+test('the looks paint the same town: the places and views agree, only cobalt has flowers', () => {
+  for (const id of ORDER) {
+    const [pastel, cobalt] = ['pastel', 'cobalt'].map((look) => buildPlace(id, propsAt(id, 12), look));
+    assert.equal(pastel.look.name, 'pastel');
+    assert.equal(cobalt.look.name, 'cobalt');
+    assert.deepEqual(pastel.views, cobalt.views, `${id}: the views moved`);
+    assert.deepEqual(pastel.shadowBox, cobalt.shadowBox, id);
+    const bushes = (w) => w.mesh.mat.filter((m) => w.materials[m].name === 'bush').length;
+    assert.equal(bushes(pastel), 0, `${id}: flowers in pastel`);
+    if (id !== 'marina') assert.ok(bushes(cobalt) > 0, `${id}: no flowers in cobalt`);
+    // Without the flowers, everything else is the same geometry.
+    if (id === 'marina') assert.equal(checksum(pastel.mesh), checksum(cobalt.mesh), 'marina: the looks built different boats');
+    const color = (w) => w.materials.find((m) => m.name === 'sidewalk').color;
+    assert.notEqual(color(pastel), color(cobalt), `${id}: the looks share every color`);
+  }
+  assert.deepEqual(LOOK_NAMES, ['pastel', 'cobalt']);
+});
+
 test('the render service paints every tile of a frame, and a newer frame wins', async () => {
   const got = [];
   let resolve;
@@ -156,4 +202,18 @@ test('the render service paints every tile of a frame, and a newer frame wins', 
   const tiles = got.filter((m) => m.type === 'tile');
   assert.equal(tiles.length, 2);
   assert.ok(tiles.every((t) => t.job === 2 && t.data.length === 32 * 40 * 3 && t.data.every(Number.isFinite)));
+});
+
+test('the render service paints in the look it is asked for', async () => {
+  const paint = (look) =>
+    new Promise((resolve) => {
+      const tiles = [];
+      const handle = createService((m) => {
+        if (m.type === 'tile') tiles.push(m.data);
+        if (m.type === 'done') resolve(tiles[0]);
+      });
+      handle({ type: 'frame', job: 1, place: 'motel', view: 'front', look, props: propsAt('motel', 13), hours: 13, W: 32, H: 20, ss: 1, shadowSize: 256, reflScale: 0.5, tiles: [[0, 0, 32, 20]] });
+    });
+  const [pastel, cobalt] = await Promise.all([paint('pastel'), paint('cobalt')]);
+  assert.ok(pastel.some((v, i) => Math.abs(v - cobalt[i]) > 0.02));
 });

@@ -1,6 +1,8 @@
 // Paloma Bay, one picture at a time. Drag across the painting to pass the
 // day; the arrow keys (or the edges of the frame) walk to another place or
-// another view of it; space lets the day go by on its own.
+// another view of it; space lets the day go by on its own. The town can be
+// painted in either of its looks (src/looks.js): the switch in the corner,
+// or L, changes it, and the page remembers.
 //
 // Every frame is painted by the engine in Web Workers: first a quick
 // sketch, then, once things settle, the finished picture tile by tile from
@@ -11,6 +13,7 @@ import { PLACES, ORDER } from '../src/scenes/index.js';
 import { propsAt, whereIs, clock } from '../src/visitor.js';
 import { sunDirection } from '../src/sky.js';
 import { bloom, toRGBA } from '../src/render.js';
+import { LOOKS, LOOK_NAMES, DEFAULT_LOOK, lookOf } from '../src/looks.js';
 import { createService } from './service.js';
 
 const MIN_H = 4.5;
@@ -26,7 +29,7 @@ const fctx = fade.getContext('2d');
 const sketch = document.createElement('canvas');
 const sctx = sketch.getContext('2d');
 
-const state = { place: 0, view: 0, hours: 12, playing: false };
+const state = { place: 0, view: 0, hours: 12, playing: false, look: DEFAULT_LOOK };
 
 // ---------------------------------------------------------------- painters
 
@@ -106,12 +109,12 @@ function paint(q) {
   clearTimeout(idle);
   const s = settings(q);
   const { place, view } = current();
-  job = { id: ++jobs, ...s, left: pool.length, buf: new Float32Array(s.W * s.H * 3), rgba: null, image: null, t0: performance.now() };
+  job = { id: ++jobs, ...s, look: state.look, left: pool.length, buf: new Float32Array(s.W * s.H * 3), rgba: null, image: null, t0: performance.now() };
   if (q === 'full') {
     job.rgba = new Uint8ClampedArray(s.W * s.H * 4);
     job.image = new ImageData(job.rgba, s.W, s.H);
   }
-  const msg = { type: 'frame', job: job.id, place, view, props: propsAt(place, state.hours), hours: state.hours, W: s.W, H: s.H, ss: s.ss, shadowSize: s.shadowSize, reflScale: s.reflScale };
+  const msg = { type: 'frame', job: job.id, place, view, look: state.look, props: propsAt(place, state.hours), hours: state.hours, W: s.W, H: s.H, ss: s.ss, shadowSize: s.shadowSize, reflScale: s.reflScale };
   const list = tiles(s.W, s.H);
   pool.forEach((post, i) => post({ ...msg, tiles: list.filter((_, k) => k % pool.length === i) }));
 }
@@ -125,7 +128,7 @@ function receive(m) {
     for (let y = y0; y < y1; y++) j.buf.set(m.data.subarray((y - y0) * w * 3, (y - y0 + 1) * w * 3), (y * j.W + x0) * 3);
     if (j.image && canvas.width === j.W && canvas.height === j.H) {
       // The finished picture comes in over the sketch.
-      toRGBA(j.buf, j.W, j.H, j.rgba, x0, y0, x1, y1);
+      toRGBA(j.buf, j.W, j.H, j.rgba, x0, y0, x1, y1, lookOf(j.look).grain);
       ctx.putImageData(j.image, 0, 0, x0, y0, w, y1 - y0);
     }
   } else if (m.type === 'done' && --j.left === 0) finish(j);
@@ -154,13 +157,13 @@ function finish(j) {
   document.body.dataset.ms = String(Math.round(performance.now() - j.t0));
   if (j.image) {
     if (canvas.width === j.W && canvas.height === j.H) {
-      toRGBA(j.buf, j.W, j.H, j.rgba);
+      toRGBA(j.buf, j.W, j.H, j.rgba, 0, 0, j.W, j.H, lookOf(j.look).grain);
       ctx.putImageData(j.image, 0, 0);
     }
   } else {
     sketch.width = j.W;
     sketch.height = j.H;
-    sctx.putImageData(new ImageData(toRGBA(j.buf, j.W, j.H), j.W, j.H), 0, 0);
+    sctx.putImageData(new ImageData(toRGBA(j.buf, j.W, j.H, undefined, 0, 0, j.W, j.H, lookOf(j.look).grain), j.W, j.H), 0, 0);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(sketch, 0, 0, canvas.width, canvas.height);
@@ -226,6 +229,34 @@ function stepView(d) {
   invalidate();
 }
 
+// The same place at the same moment, in the other look.
+function setLook(name) {
+  if (!LOOK_NAMES.includes(name) || name === state.look) return;
+  state.look = name;
+  try {
+    localStorage.setItem('paloma-look', name);
+  } catch {
+    // private windows and file:// pages may say no; the address still has it
+  }
+  showLook();
+  crossfade();
+  invalidate();
+}
+
+function showLook() {
+  for (const b of $('looks').children) b.setAttribute('aria-pressed', String(b.dataset.look === state.look));
+  $('postcards').href = `book.html?look=${state.look}`;
+}
+
+function savedLook() {
+  try {
+    const l = localStorage.getItem('paloma-look');
+    return LOOK_NAMES.includes(l) ? l : null;
+  } catch {
+    return null;
+  }
+}
+
 let last = 0;
 function play() {
   state.playing = true;
@@ -258,19 +289,26 @@ function caption() {
   const el = (Math.asin(sunDirection(state.hours)[1]) * 180) / Math.PI;
   sun.style.background = el > 4 ? '#fff4d8' : el > -6 ? '#ffa373' : '#aebdff';
   clearTimeout(hashTimer);
-  hashTimer = setTimeout(() => history.replaceState(null, '', `#${place}/${view}/${state.hours.toFixed(2)}`), 250);
+  hashTimer = setTimeout(() => history.replaceState(null, '', address()), 250);
 }
 
-// The address says where and when: #place/view/hours.
+// The address says where, when and how: #place/view/hours/look.
+const HASH = /^#([a-z]+)(?:\/([a-z]+))?(?:\/(\d+(?:\.\d+)?))?(?:\/([a-z]+))?/;
+
+function address() {
+  const { place, view } = current();
+  return `#${place}/${view}/${state.hours.toFixed(2)}/${state.look}`;
+}
+
 function readHash() {
-  const m = location.hash.match(/^#([a-z]+)(?:\/([a-z]+))?(?:\/(\d+(?:\.\d+)?))?/);
+  const m = location.hash.match(HASH);
   if (!m || !ORDER.includes(m[1])) return null;
   const views = PLACES[m[1]].VIEWS;
-  return { place: ORDER.indexOf(m[1]), view: Math.max(0, views.indexOf(m[2])), hours: m[3] ? Number(m[3]) : null };
+  return { place: ORDER.indexOf(m[1]), view: Math.max(0, views.indexOf(m[2])), hours: m[3] ? Number(m[3]) : null, look: LOOK_NAMES.includes(m[4]) ? m[4] : null };
 }
 
 function start() {
-  const m = location.hash.match(/^#([a-z]+)(?:\/([a-z]+))?(?:\/(\d+(?:\.\d+)?))?/);
+  const m = location.hash.match(HASH);
   const now = new Date();
   let h = now.getHours() + now.getMinutes() / 60;
   if (h < MIN_H) h = MAX_H; // small hours: show the night
@@ -281,6 +319,11 @@ function start() {
   state.place = ORDER.indexOf(place);
   const vi = m && m[2] ? PLACES[place].VIEWS.indexOf(m[2]) : 0;
   state.view = Math.max(0, vi);
+  // The look the address asks for (#.../look, or ?look= from the book), or
+  // the one chosen here last time.
+  const asked = [m && m[4], new URLSearchParams(location.search).get('look')].find((l) => LOOK_NAMES.includes(l));
+  state.look = asked ?? savedLook() ?? DEFAULT_LOOK;
+  showLook();
   revealing = true;
   resize();
   invalidate();
@@ -357,6 +400,14 @@ addEventListener(
 
 $('prev').addEventListener('click', () => (noted(), stepPlace(-1)));
 $('next').addEventListener('click', () => (noted(), stepPlace(1)));
+for (const name of LOOK_NAMES) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.look = name;
+  b.textContent = LOOKS[name].title;
+  b.addEventListener('click', () => (noted(), setLook(name)));
+  $('looks').append(b);
+}
 
 addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -368,6 +419,7 @@ addEventListener('keydown', (e) => {
   else if (k === ' ') state.playing ? pause() : play();
   else if (k === '.' || k === ']') setHours(state.hours + 0.25);
   else if (k === ',' || k === '[') setHours(state.hours - 0.25);
+  else if (k === 'l' || k === 'L') setLook(LOOK_NAMES[(LOOK_NAMES.indexOf(state.look) + 1) % LOOK_NAMES.length]);
   else return;
   e.preventDefault();
   noted();
@@ -380,12 +432,15 @@ addEventListener('resize', () => {
 document.addEventListener('visibilitychange', () => document.hidden && pause());
 addEventListener('hashchange', () => {
   const h = readHash();
-  const { place, view } = current();
-  if (!h || location.hash === `#${place}/${view}/${state.hours.toFixed(2)}`) return;
-  const moved = h.place !== state.place || h.view !== state.view;
+  if (!h || location.hash === address()) return;
+  const moved = h.place !== state.place || h.view !== state.view || (h.look !== null && h.look !== state.look);
   state.place = h.place;
   state.view = h.view;
   if (h.hours !== null) state.hours = Math.min(MAX_H, Math.max(MIN_H, h.hours));
+  if (h.look !== null) {
+    state.look = h.look;
+    showLook();
+  }
   if (moved) crossfade();
   invalidate();
 });

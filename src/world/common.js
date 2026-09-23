@@ -91,7 +91,7 @@ export function lampPost(b, M, x, z, base = 0, { height = 3.6, globe = 0.22, col
   b.translate(0, height + globe * 0.9, 0);
   b.sphere(globe, 10, 7);
   b.pop();
-  return { p: [x, base + height + globe, z], c: color, r: reach, k: 0.95 };
+  return { p: [x, base + height + globe, z], c: color, r: reach, k: 0.95, emit: 'globe' };
 }
 
 // Rejection sampling with spacing: tries points in `zone` = [x0, x1, z0,

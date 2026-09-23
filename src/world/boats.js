@@ -93,7 +93,10 @@ export function hull(b, M, { L, B, F, paint, boot, stripe = null }) {
 }
 
 // A cruising sailboat, L meters overall.
-export function addSailboat(b, M, rng, { L = rng.range(9, 12.5), paint = M.hull, boot = M.bootStripe, cover = M.sailCover } = {}) {
+// sails: 0 leaves the mainsail furled under its cover; above that, the
+// fraction of the way both sails are hoisted, with the boom swung out
+// `boom` radians (positive to starboard, -z).
+export function addSailboat(b, M, rng, { L = rng.range(9, 12.5), paint = M.hull, boot = M.bootStripe, cover = M.sailCover, sails = 0, boom = 0 } = {}) {
   const B = L * 0.33;
   const F = 0.95 + L * 0.02;
   const H = hull(b, M, { L, B, F, paint, boot, stripe: rng.chance(0.5) ? boot : null });
@@ -127,21 +130,34 @@ export function addSailboat(b, M, rng, { L = rng.range(9, 12.5), paint = M.hull,
     if (s > 0) b.quad(...pts);
     else b.quad(pts[3], pts[2], pts[1], pts[0]);
   }
-  // Mast, boom and the sail furled under its cover.
+  // Mast, boom and the sail, furled under its cover or set.
   const mx = H.at(0.62).x;
   const mh = L * 1.32;
   b.use(M.mast, CAST | SMOOTH);
   b.tube([[mx, cy + ch, 0], [mx, cy + mh, 0]], [0.075, 0.05], 6);
   const by = cy + ch + 0.95;
   const bx = H.at(0.14).x;
-  b.tube([[mx, by, 0], [bx, by, 0]], [0.05, 0.05], 5);
-  b.use(cover, CAST | SMOOTH);
-  b.tube([[mx - 0.1, by + 0.12, 0], [(mx + bx) / 2, by + 0.16, 0], [bx + 0.5, by + 0.1, 0]], [0.2, 0.17, 0.08], 7);
-  // Standing rigging: forestay, backstay, shrouds.
-  b.use(M.rope, CAST | SMOOTH);
   const top = [mx, cy + mh - 0.1, 0];
   const bow = H.bow;
   const stern = H.stern;
+  if (sails > 0) {
+    const bl = mx - bx;
+    const clew = [mx - bl * Math.cos(boom), by, -bl * Math.sin(boom)];
+    b.tube([[mx, by, 0], clew], [0.05, 0.05], 5);
+    // Both sails belly out to leeward, the side the boom is on.
+    const lee = boom >= 0 ? -1 : 1;
+    b.use(M.sail, CAST | DOUBLE);
+    sail(b, [mx - 0.08, by + 0.06, 0], [mx - 0.08, by + (top[1] - 0.3 - by) * sails, 0], [clew[0], by + 0.06, clew[2]], lee, 0.1);
+    const tack = [bow.x - 0.2, bow.sheer + 0.12, 0];
+    const head = [tack[0] + (top[0] - tack[0]) * 0.8 * sails, tack[1] + (top[1] - tack[1]) * 0.8 * sails, 0];
+    sail(b, tack, head, [mx - 0.5, by - 0.45, lee * (0.6 + 0.9 * sails)], lee, 0.12);
+  } else {
+    b.tube([[mx, by, 0], [bx, by, 0]], [0.05, 0.05], 5);
+    b.use(cover, CAST | SMOOTH);
+    b.tube([[mx - 0.1, by + 0.12, 0], [(mx + bx) / 2, by + 0.16, 0], [bx + 0.5, by + 0.1, 0]], [0.2, 0.17, 0.08], 7);
+  }
+  // Standing rigging: forestay, backstay, shrouds.
+  b.use(M.rope, CAST | SMOOTH);
   const r = [0.012, 0.012];
   b.tube([top, [bow.x - 0.1, bow.sheer + 0.05, 0]], r, 3);
   b.tube([top, [stern.x + 0.1, stern.sheer + 0.05, 0]], r, 3);
@@ -152,6 +168,31 @@ export function addSailboat(b, M, rng, { L = rng.range(9, 12.5), paint = M.hull,
   const p0 = H.at(0.93);
   b.tube([[p0.x, p0.sheer, -p0.w * 0.8], [p0.x + 0.2, p0.sheer + 0.6, -p0.w * 0.55], [bow.x - 0.15, bow.sheer + 0.62, 0], [p0.x + 0.2, p0.sheer + 0.6, p0.w * 0.55], [p0.x, p0.sheer, p0.w * 0.8]], [0.018, 0.018, 0.018, 0.018, 0.018], 4);
   return { L, mast: [mx, cy + mh], H };
+}
+
+// A triangular sail from tack up the luff to the head and out along the
+// foot to the clew, cambered: it bellies out `belly` of its chord toward
+// side `lee` (+1 = +z).
+function sail(b, tack, head, clew, lee, belly) {
+  const NU = 4;
+  const NV = 5;
+  const chord = Math.hypot(clew[0] - tack[0], clew[2] - tack[2]);
+  const at = (u, v) => {
+    const k = (1 - v) * u;
+    const p = [tack[0] + (head[0] - tack[0]) * v + (clew[0] - tack[0]) * k, tack[1] + (head[1] - tack[1]) * v + (clew[1] - tack[1]) * k, tack[2] + (head[2] - tack[2]) * v + (clew[2] - tack[2]) * k];
+    p[2] += lee * belly * chord * (1 - v) * 4 * u * (1 - u);
+    return p;
+  };
+  for (let i = 0; i < NV; i++) {
+    for (let j = 0; j < NU; j++) {
+      const v0 = i / NV;
+      const v1 = (i + 1) / NV;
+      const u0 = j / NU;
+      const u1 = (j + 1) / NU;
+      if (i === NV - 1) b.tri(at(u0, v0), at(u1, v0), at(0, 1));
+      else b.quad(at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1));
+    }
+  }
 }
 
 // A motor yacht: high topsides, a deckhouse wrapped in dark glass, a

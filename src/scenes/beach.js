@@ -14,8 +14,11 @@ import { addFanPalm } from '../world/fanpalm.js';
 import { addCar, parkedCar } from '../world/cars.js';
 import { addUmbrella } from '../world/props.js';
 import { hills, railing, lampPost } from '../world/common.js';
-import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFoam, addBreakers } from '../world/shore.js';
+import { addLifeguardTower, addBoardRack, addSurfboard, addTowel, addPier, addFoam, addBreakers, addFootprints } from '../world/shore.js';
 import { level } from '../camera.js';
+import { addFlowerBush } from '../world/plants.js';
+import { motion } from '../world/motion.js';
+import { lookOf } from '../looks.js';
 
 export const NAME = 'The Beach';
 // Compositions, the first one the place's hero.
@@ -28,14 +31,15 @@ const Z = 3000; // the beach runs on out of sight both ways
 const FAR = 25000;
 const PIER = -95;
 
-export const DEFAULT_PROPS = { car: true, towel: true, umbrella: 'open', board: 'sand' };
+// prints: the visitor's footprints, 0 none, 1 down to the water, 2 and back.
+export const DEFAULT_PROPS = { car: true, towel: true, umbrella: 'open', board: 'sand', prints: 0 };
 
 const sandY = (x) => x * SLOPE;
 
-export function build(props = {}) {
+export function build(props = {}, look = lookOf()) {
   const P = { ...DEFAULT_PROPS, ...props };
   const sub = (salt) => new Rng(hashInts(SEED, salt));
-  const { list: materials, M } = makeMaterials(sub(1));
+  const { list: materials, M } = makeMaterials(sub(1), look);
   const b = new MeshBuilder();
   const lights = [];
 
@@ -57,17 +61,20 @@ export function build(props = {}) {
   band(M.sand, tide, () => WALL);
   // Foam: a thin scalloped swash at the waterline, and two lines of
   // breaking waves offshore.
+  // With the motion clock running, each line runs in and back with the
+  // swell a little after the line beyond it, so the waves come ashore.
+  const wash = motion.wind > 0 ? (z) => 0.45 * Math.sin(((2 * Math.PI) / 7.5) * motion.t - 3.6 - z * 0.012) : () => 0;
   addFoam(b, M, {
     z0: -Z,
     z1: Z,
     step: 1.25,
-    xa: (z) => -0.12 - 0.22 * Math.pow(Math.abs(Math.sin(z * 0.11 + ph[0])), 0.6) - 0.1 * Math.sin(z * 0.029 + ph[1]),
+    xa: (z) => -0.12 - 0.22 * Math.pow(Math.abs(Math.sin(z * 0.11 + ph[0])), 0.6) - 0.1 * Math.sin(z * 0.029 + ph[1]) + wash(z),
     xb: () => 0.3,
   });
-  addBreakers(b, M, sub(14), { x: -0.9, z0: -900, z1: 900, width: 1.1, len: [2, 9], gap: [0.4, 3], y: 0.01, mat: M.lace });
-  addBreakers(b, M, sub(11), { x: -6, z0: -900, z1: 900, width: 0.45, len: [3, 12], gap: [1.5, 7] });
-  addBreakers(b, M, sub(12), { x: -15, z0: -1500, z1: 1500, width: 0.9, len: [6, 26], gap: [2, 10] });
-  addBreakers(b, M, sub(13), { x: -31, z0: -2000, z1: 2000, width: 1.2, len: [8, 30], gap: [4, 16] });
+  addBreakers(b, M, sub(14), { x: -0.9, z0: -900, z1: 900, width: 1.1, len: [2, 9], gap: [0.4, 3], y: 0.01, mat: M.lace, surge: 0.9, lag: 3.0 });
+  addBreakers(b, M, sub(11), { x: -6, z0: -900, z1: 900, width: 0.45, len: [3, 12], gap: [1.5, 7], surge: 1.4, lag: 2.2 });
+  addBreakers(b, M, sub(12), { x: -15, z0: -1500, z1: 1500, width: 0.9, len: [6, 26], gap: [2, 10], surge: 1.8, lag: 1.2 });
+  addBreakers(b, M, sub(13), { x: -31, z0: -2000, z1: 2000, width: 1.2, len: [8, 30], gap: [4, 16], surge: 2.2, lag: 0 });
 
   // ---- the promenade, its palms, the street and the houses
   b.use(M.stucco, CAST);
@@ -109,6 +116,13 @@ export function build(props = {}) {
       height: pr.range(8.5, 12),
     });
     palms.push({ ...info });
+    // Every other palm has a flowering bush at its foot.
+    if (look.flowers && palms.length % 2 === 0) {
+      b.push();
+      b.translate(WALL + 3.6 + r.range(-0.3, 0.3), PROM, z + r.range(1.4, 2.2));
+      addFlowerBush(b, M, sub(20).fork(palms.length), { r: r.range(0.75, 1.0), h: 0.8, kind: r.pick(['bougainvillea', 'hibiscus', 'oleander']) });
+      b.pop();
+    }
   }
   for (let z = -60; z < 140; z += 26) lights.push(lampPost(b, M, WALL + 1.2, z, PROM, { height: 4.2, reach: 6 }));
   // Beach houses across the street, in the town's pastels.
@@ -124,14 +138,15 @@ export function build(props = {}) {
   // In the stalls: the visitor's car among others, noses to the sea.
   const cr = sub(5);
   for (let k = -12; k < 16; k++) {
+    const r = cr.fork(k + 20); // one stream per stall
     const z = -150.2 + 2.8 * (54 + k) + 1.4;
     const visitor = k === 0;
-    if (visitor ? !P.car : cr.chance(0.55)) continue;
+    if (visitor ? !P.car : r.chance(0.55)) continue;
     b.push();
-    b.translate(WALL + 15, PROM, z + cr.range(-0.1, 0.1));
-    b.rotateY(Math.PI + cr.range(-0.03, 0.03));
+    b.translate(WALL + 15, PROM, z + r.range(-0.1, 0.1));
+    b.rotateY(Math.PI + r.range(-0.03, 0.03));
     if (visitor) addCar(b, M, { paint: M.visitor });
-    else parkedCar(b, M, cr);
+    else parkedCar(b, M, r, { lod: 0.3 });
     b.pop();
   }
 
@@ -174,6 +189,13 @@ export function build(props = {}) {
     addSurfboard(b, M.boardAqua, 2.45);
     b.pop();
   }
+  // Footprints: down to the water with the board, and later back up.
+  if (P.prints) {
+    const fp = sub(15);
+    const opts = { ground: sandY, wet: tide, swash: 1.1 };
+    addFootprints(b, M, fp.fork(1), [[spot.x - 1.9, spot.z + 0.1], [15, 8.9], [9, 7.2], [0.6, 6.3]], opts);
+    if (P.prints > 1) addFootprints(b, M, fp.fork(2), [[0.8, 8.2], [7.5, 9.0], [13.5, 10.2], [spot.x - 1.6, spot.z + 0.9]], opts);
+  }
   // Other umbrellas up and down the beach, left standing.
   const ur = sub(6);
   const colors = [
@@ -213,7 +235,8 @@ export function build(props = {}) {
     props: P,
     mesh,
     materials,
-    sky: makeSky(sub(10), { clouds: [4, 6], gulls: [2, 5] }),
+    look,
+    sky: makeSky(sub(10), { clouds: look.clouds.beach, gulls: [2, 5] }, look),
     seaLevel: 0,
     mirror: { y: 0 },
     water: {

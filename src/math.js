@@ -277,3 +277,22 @@ export function hex(h) {
   const n = parseInt(h.replace('#', ''), 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
+
+// Hue in degrees [0, 360), saturation and value in [0, 1].
+export function rgbToHsv(r, g, b) {
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  const d = mx - mn;
+  let h = 0;
+  if (d > 1e-9) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, mx > 0 ? d / mx : 0, mx];
+}
+
+export function hsvToRgb(h, s, v) {
+  const c = v * s;
+  const hp = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  const [r, g, b] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = v - c;
+  return [r + m, g + m, b + m];
+}

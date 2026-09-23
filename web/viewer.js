@@ -4,11 +4,12 @@
 
 import { buildWorld, DEFAULT_SEED, DEFAULT_PROPS } from '../src/world/index.js';
 import { Renderer, toRGBA } from '../src/render.js';
+import { LOOKS, LOOK_NAMES, DEFAULT_LOOK } from '../src/looks.js';
 import { views } from '../src/views.js';
 import { sunDirection } from '../src/sky.js';
 import { DEG, clamp, mat4LookAt, mat4Perspective, mat4Mul } from '../src/math.js';
 
-const defaults = { seed: DEFAULT_SEED, hours: 16.5, view: 'hero', fov: 46, props: { ...DEFAULT_PROPS } };
+const defaults = { seed: DEFAULT_SEED, hours: 16.5, view: 'hero', fov: 46, look: DEFAULT_LOOK, props: { ...DEFAULT_PROPS } };
 let params = structuredClone(defaults);
 
 const PRESETS = [
@@ -50,7 +51,7 @@ let lastFastMs = 0;
 
 function rebuild() {
   const t0 = performance.now();
-  world = buildWorld(params.seed, params.props);
+  world = buildWorld(params.seed, params.props, params.look);
   fast = new Renderer(world, { shadowSize: 1024 });
   fine = new Renderer(world, { shadowSize: 2048 });
   const ms = performance.now() - t0;
@@ -136,7 +137,7 @@ function renderFast() {
   fast.setCamera(camera(), w, h, 1);
   const img = fast.render();
   const px = sctx.createImageData(w, h);
-  toRGBA(img, w, h, px.data);
+  toRGBA(img, w, h, px.data, 0, 0, w, h, fast.look.grain);
   sctx.putImageData(px, 0, 0);
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(small, 0, 0, W, H);
@@ -158,7 +159,7 @@ function stepFine(job, budget) {
   while (job.i < job.tiles.length && performance.now() - t0 < budget) {
     const [x0, y0, x1, y1] = job.tiles[job.i++];
     fine.renderTile(x0, y0, x1, y1, job.img);
-    toRGBA(job.img, W, H, image.data, x0, y0, x1, y1);
+    toRGBA(job.img, W, H, image.data, x0, y0, x1, y1, fine.look.grain);
     ctx.putImageData(image, 0, 0, x0, y0, x1 - x0, y1 - y0);
   }
   const done = job.i >= job.tiles.length;
@@ -397,6 +398,23 @@ function syncUI() {
   $('float').value = params.props.float;
   $('float-value').textContent = params.props.float.toFixed(2);
   for (const b of $('presets').children) b.classList.toggle('active', b.dataset.view === params.view);
+  for (const b of $('looks').children) b.classList.toggle('active', b.dataset.look === params.look);
+}
+
+function buildLooks() {
+  const el = $('looks');
+  for (const name of LOOK_NAMES) {
+    const b = document.createElement('button');
+    b.className = 'button';
+    b.textContent = LOOKS[name].title;
+    b.dataset.look = name;
+    b.onclick = () => {
+      params.look = name;
+      syncUI();
+      rebuild();
+    };
+    el.appendChild(b);
+  }
 }
 
 function buildPresets() {
@@ -460,7 +478,7 @@ Object.assign(window, {
     canvas.toBlob((blob) => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `vacant-sunlight-${params.seed}-${fmtHours(params.hours).replace(/[: ]/g, '')}.png`;
+      a.download = `vacant-sunlight-${params.seed}-${params.look}-${fmtHours(params.hours).replace(/[: ]/g, '')}.png`;
       a.click();
     });
   },
@@ -480,6 +498,7 @@ window.__vacant = {
 };
 
 buildPresets();
+buildLooks();
 rebuild();
 setView(params.view);
 requestAnimationFrame(frame);

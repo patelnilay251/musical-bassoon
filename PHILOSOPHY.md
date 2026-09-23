@@ -21,3 +21,21 @@ The first engine rendered a resort, and it looked rendered: correct, continuous 
 Composition matters as much as color. Paintings of this kind are made with a level eye: verticals stay vertical, horizons sit low, and the sky is given room. The camera is built that way, level with a rising front, and each place is framed deliberately rather than orbited. The frame crops buildings the way a painter would. Palms lead the eye up, and a road leads it down to the sun.
 
 One house became a town, because variety is how a style proves it is a style: a motel with a neon sign, a boulevard of fan palms aimed at the midsummer sunset, a beach, a marina with a lighthouse. The subject is still absence. Now the absence travels. One visitor, never seen, keeps a schedule across the whole town, and the site and the book share it. A towel on the sand, a gap in the surfboard rack, an empty slip where a red sloop should be, and a yellow convertible back at the motel under NO VACANCY.
+
+## Third movement: the attract mode
+
+A town that keeps its own time can be filmed. The film pretends to be something that summer would have had: an arcade game in the corner of the motel lobby, playing itself between customers. What the stills only implied now happens. The palms move in the onshore wind, the boats lift on the swell, the breakers come ashore one line after another, and the yellow convertible drives to breakfast and home again. The player who drops in the coin is the visitor, and is never seen either.
+
+The game keeps the manners of its hardware, because the limits are how the memory is shaped. It paints at 384 by 216 in 512 colors with an ordered dither, writes in a five-by-seven font, and changes stages the way the consoles did, by breaking the picture into blocks. Backgrounds hold still and are animated on twos, and only the drives run at full rate. The music is played on a small FM board built for it, in the harmony of the records that were playing that summer. Every sound is placed from the same score as the pictures, so the surf breaks when the lines on screen do and a door closes once the car has parked. Nothing is sampled or borrowed. Like the paintings, the game is only rules, and it should feel like something you almost remember.
+
+## Fourth movement: one day
+
+The game was the town remembered through a machine. The film is the town at full painted resolution, the way the book sees it, set moving. It keeps two clocks. The light runs fast enough that a shot holds a quarter of an hour and you can watch a shadow travel down a wall. Wind, water, birds and the car run at the speed of life. The camera behaves like an easel: level, mostly still, turning only to follow the car. The film is built on the book. It passes through every postcard at the postcard's own minute, so each page stops being a moment and becomes a place in a day that goes on either side of it.
+
+The visitor is still absent, and now they can be heard. They are known by a car radio playing that summer's song, which stops mid-phrase when the key turns, and by a door, footprints on the sand, and a window that lights up after the car has gone quiet. The score is the same song, slower, as if remembered from further away. It finishes the phrase the radio broke off, and a music box plays it once more. Every sound belongs to a place and sits where the camera sees it: doves at dawn, a flag's halyard ringing on its pole at the beach, a bell buoy far out at dusk. Each is synthesized from rules, like everything else.
+
+## Fifth movement: two looks
+
+Then the town was set beside the records it had been imitating, and measured against them. Their skies stay deep right down to the horizon. Their shadows keep each color's hue and only go deeper. Their paint is clean. The repaint follows those rules: cobalt skies with hardly a cloud, shade mixed rather than grayed, dark palms with bright tips, flecks of sun dabbed on the pools, and bougainvillea wherever the picture wants heat.
+
+The first look was kept rather than painted over. Pastel is the town as it was first seen, hazy and sunstruck, with a grain like board. Cobalt is the town as the covers remember it. A look is only data, a page of choices the engine reads, so every picture can be made either way, and each film keeps the look it was painted in.

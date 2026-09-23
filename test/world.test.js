@@ -5,6 +5,9 @@ import { DEG } from '../src/math.js';
 import { buildWorld } from '../src/world/index.js';
 import { Renderer } from '../src/render.js';
 import { views } from '../src/views.js';
+import { LOOKS, LOOK_NAMES, DEFAULT_LOOK, lookOf } from '../src/looks.js';
+
+const luma = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
 
 test('solar noon: due south, at 90 - latitude + declination', () => {
   const d = sunDirection(12);
@@ -23,14 +26,37 @@ test('the sun rises in the east and sets in the west, symmetrically', () => {
   assert.ok(sunDirection(4.5)[1] < 0 && sunDirection(19.5)[1] < 0, 'down at night');
 });
 
-test('sky: bright day, dark starry night with the lights on', () => {
-  const day = skyState(13);
-  const night = skyState(22);
-  assert.ok(day.keyOn && day.night === 0 && day.lights === 0);
-  assert.ok(night.night > 0.9 && night.stars > 0.9 && night.lights === 1);
+test('sky: bright day, dark starry night with the lights on, in either look', () => {
+  for (const look of LOOK_NAMES) {
+    const day = skyState(13, {}, look);
+    const night = skyState(22, {}, look);
+    assert.equal(day.look, LOOKS[look]);
+    assert.ok(day.keyOn && day.night === 0 && day.lights === 0, look);
+    assert.ok(night.night > 0.9 && night.stars > 0.9 && night.lights === 1, look);
+    // Shadows are a hue shift: the shade tone is bluer than the light tone.
+    assert.ok(day.amb[2] > day.amb[0] && day.key[0] > day.key[2], look);
+  }
+  // Without a look, the default one.
+  assert.equal(skyState(13).look, LOOKS[DEFAULT_LOOK]);
+  assert.equal(lookOf('no such look'), LOOKS[DEFAULT_LOOK]);
+});
+
+test('pastel: a sky misted white at the horizon, a dark night', () => {
+  const day = skyState(13, {}, 'pastel');
+  const night = skyState(22, {}, 'pastel');
   assert.ok(night.zenith.reduce((a, b) => a + b) < day.zenith.reduce((a, b) => a + b) / 4);
-  // Shadows are a hue shift: the shade tone is bluer than the light tone.
-  assert.ok(day.amb[2] > day.amb[0] && day.key[0] > day.key[2]);
+  assert.ok(day.horizon[0] > 0.75 * day.horizon[2] && luma(day.horizon) > 0.8, 'the horizon is misted');
+});
+
+test('cobalt: deep to the horizon, a royal-blue night', () => {
+  const day = skyState(13, {}, 'cobalt');
+  const night = skyState(22, {}, 'cobalt');
+  // The day is a deep cobalt and the night a luminous royal blue, as the
+  // painters have it: darker by half, and still blue.
+  assert.ok(luma(night.zenith) < luma(day.zenith) * 0.6);
+  assert.ok(night.zenith[2] > 2 * night.zenith[1] && night.zenith[1] > night.zenith[0], 'the night sky is blue');
+  // And a clear day's sky stays saturated right down to the horizon.
+  assert.ok(day.horizon[2] > 1.5 * day.horizon[0], 'no white haze at the horizon');
 });
 
 function checksum(mesh) {
@@ -79,25 +105,38 @@ test('placement rules hold across seeds', () => {
   }
 });
 
-test('a small render is finite, sky is blue by day, and night is dark', () => {
-  const world = buildWorld(1981);
-  const r = new Renderer(world, { shadowSize: 512 });
+test('a small render is finite, sky is blue by day, and night is dark, in either look', () => {
   const W = 48;
   const H = 32;
   const mean = (img) => img.reduce((a, b) => a + b, 0) / img.length;
-  r.setCamera(views(world.layout).sea, W, H, 1);
-  r.setTime(13);
-  const day = r.render();
-  assert.ok(day.every(Number.isFinite));
-  const sky = new Float64Array(3);
-  r.background(0, 2, 0, 0, 0.6, 0.8, sky);
-  assert.ok(sky[2] > sky[1] && sky[1] > sky[0], 'noon sky is blue');
-  r.setTime(22);
-  const night = r.render();
-  assert.ok(night.every(Number.isFinite));
-  // The glowing pool keeps the frame bright; the sky itself goes dark.
-  assert.ok(mean(night) < mean(day) * 0.6, 'night is darker');
-  const nightSky = new Float64Array(3);
-  r.background(0, 2, 0, 0, 0.6, 0.8, nightSky);
-  assert.ok(nightSky[0] + nightSky[1] + nightSky[2] < (sky[0] + sky[1] + sky[2]) / 4, 'night sky is dark');
+  const frames = {};
+  for (const look of LOOK_NAMES) {
+    const world = buildWorld(1981, {}, look);
+    const r = new Renderer(world, { shadowSize: 512 });
+    assert.equal(r.look, LOOKS[look], 'the renderer paints in the look the world was built in');
+    r.setCamera(views(world.layout).sea, W, H, 1);
+    r.setTime(13);
+    const day = r.render();
+    assert.ok(day.every(Number.isFinite), look);
+    const sky = new Float64Array(3);
+    r.background(0, 2, 0, 0, 0.6, 0.8, sky);
+    assert.ok(sky[2] > sky[1] && sky[1] > sky[0], `${look}: noon sky is blue`);
+    r.setTime(22);
+    const night = r.render();
+    assert.ok(night.every(Number.isFinite), look);
+    const nightSky = new Float64Array(3);
+    r.background(0, 2, 0, 0, 0.6, 0.8, nightSky);
+    if (look === 'pastel') {
+      // The glowing pool keeps the frame bright; the sky itself goes dark.
+      assert.ok(mean(night) < mean(day) * 0.6, 'pastel: night is darker');
+      assert.ok(nightSky[0] + nightSky[1] + nightSky[2] < (sky[0] + sky[1] + sky[2]) / 4, 'pastel: night sky is dark');
+    } else {
+      // The blue night is lighter, and still darker than the day.
+      assert.ok(mean(night) < mean(day) * 0.85, `${look}: night is darker`);
+      assert.ok(luma(nightSky) < luma(sky) * 0.6 && nightSky[2] > nightSky[0], `${look}: night sky is a darker blue`);
+    }
+    frames[look] = day;
+  }
+  // The same moment, painted two ways.
+  assert.ok(frames.pastel.some((v, i) => Math.abs(v - frames.cobalt[i]) > 0.02), 'the looks differ');
 });
