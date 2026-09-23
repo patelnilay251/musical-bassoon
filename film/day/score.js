@@ -376,7 +376,8 @@ function lettering(sh, s) {
   }
   if (sh.wish) {
     const a = smooth(sh.len - 7.6, sh.len - 6.2, s);
-    out.push({ text: 'WISH YOU WERE HERE', x: 0.5, y: 0.3, cap: 0.03, align: 'center', alpha: a, tracking: 0.6 });
+    // In the open sky left of the pylon.
+    out.push({ text: 'WISH YOU WERE HERE', x: 0.36, y: 0.3, cap: 0.03, align: 'center', alpha: a, tracking: 0.6 });
   }
   return out;
 }

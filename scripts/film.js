@@ -153,7 +153,9 @@ async function joinSlices(film, dir, out) {
   const list = join(dir, 'slices.txt');
   writeFileSync(list, parts.map((p) => `file '${join(dir, p)}'`).join('\n') + '\n');
   const wav = out.replace(/\.mp4$/, '') + '.wav';
-  writeFileSync(wav, film.soundtrack({ from: 0, to: film.DURATION }));
+  // As long as the pictures (a film's last frame can end a hair after its
+  // score does), so -shortest never cuts frames.
+  writeFileSync(wav, film.soundtrack({ from: 0, to: Math.max(film.DURATION, film.FRAMES / film.FPS) }));
   await run(['-y', '-hide_banner', '-loglevel', 'warning', '-f', 'concat', '-safe', '0', '-i', list, '-i', wav, '-c:v', 'copy', ...audioArgs(), '-movflags', '+faststart', out]);
   rmSync(wav);
   console.log(`${out}: ${parts.length} slices joined, ${(statSync(out).size / 1e6).toFixed(1)} MB`);

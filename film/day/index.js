@@ -8,7 +8,7 @@ export { soundtrack } from './sound.js';
 
 export const TITLE = 'One Day in Paloma Bay';
 export const OUT = 'docs/film/one-day.mp4';
-export const PAGE = { from: 'web/day.html', to: 'docs/day.html', poster: 'docs/film/one-day.png', at: 147.5 };
+export const PAGE = { from: 'web/day.html', to: 'docs/day.html', poster: 'docs/film/one-day.png', at: 5.2 }; // the title over the motel before dawn
 export const ENCODE = { crf: 18, preset: 'slow', tune: 'film' };
 export const DRAFT = { crf: 24, preset: 'veryfast', tune: 'film' };
 
