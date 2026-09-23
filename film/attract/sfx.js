@@ -4,7 +4,7 @@
 // the yellow car's engine following its speed, the door when it has
 // parked, and the NO in NO VACANCY buzzing on frame by frame.
 
-import { RATE, SVF, noiseSource, blip, bell } from '../src/audio/synth.js';
+import { RATE, SVF, noiseSource, blip, bell } from '../../src/audio/synth.js';
 import * as SC from './score.js';
 import { chordAt } from './music.js';
 import { LETTER, CARD } from './screen.js';

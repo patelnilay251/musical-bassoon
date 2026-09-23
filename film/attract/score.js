@@ -10,10 +10,10 @@
 // says what frame i shows; the music and the sound effects read the same
 // sections, so a door closes when the car has parked.
 
-import { propsAt } from '../src/visitor.js';
-import { level, levelAt } from '../src/camera.js';
-import { buildPlace } from '../src/scenes/index.js';
-import { hash2 } from '../src/math.js';
+import { propsAt } from '../../src/visitor.js';
+import { level, levelAt } from '../../src/camera.js';
+import { buildPlace } from '../../src/scenes/index.js';
+import { hash2 } from '../../src/math.js';
 import * as S from './screen.js';
 
 export const FPS = 30;

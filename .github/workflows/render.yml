@@ -1,0 +1,103 @@
+# Render a film on GitHub's machines: a commit that changes
+# render/request.json starts it. The film is cut into slices rendered at
+# the same time on as many runners, then joined, given its soundtrack,
+# and posted to a pre-release named after the film (and kept as an
+# artifact for a few days).
+
+name: render
+
+on:
+  push:
+    paths: ['render/request.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: render-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      film: ${{ steps.req.outputs.film }}
+      quality: ${{ steps.req.outputs.quality }}
+      slices: ${{ steps.req.outputs.slices }}
+      matrix: ${{ steps.req.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: req
+        run: |
+          node -e '
+            const r = require("./render/request.json");
+            const n = Math.max(1, Math.min(20, r.slices ?? 20));
+            const out = [
+              "film=" + (r.film ?? "day"),
+              "quality=" + (r.quality ?? "final"),
+              "slices=" + n,
+              "matrix=" + JSON.stringify([...Array(n).keys()]),
+            ];
+            console.log(out.join("\n"));
+          ' >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  render:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        slice: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null
+      - name: render slice ${{ matrix.slice }} of ${{ needs.plan.outputs.slices }}
+        run: |
+          nproc
+          name=$(printf 'slice-%02d.mp4' ${{ matrix.slice }})
+          draft=$([ "${{ needs.plan.outputs.quality }}" = draft ] && echo --draft || true)
+          node scripts/film.js --film ${{ needs.plan.outputs.film }} $draft --slice ${{ matrix.slice }}/${{ needs.plan.outputs.slices }} --video-only --out slices/$name
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ matrix.slice }}
+          path: slices/*.mp4
+          retention-days: 3
+
+  join:
+    needs: [plan, render]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg > /dev/null
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: slice-*
+          path: slices
+          merge-multiple: true
+      - name: join and add the soundtrack
+        run: |
+          ls -la slices
+          node scripts/film.js --film ${{ needs.plan.outputs.film }} --join slices --out out/${{ needs.plan.outputs.film }}-${{ needs.plan.outputs.quality }}.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: film
+          path: out/*.mp4
+          retention-days: 7
+      - name: post to the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=render-${{ needs.plan.outputs.film }}-${{ needs.plan.outputs.quality }}
+          gh release view "$tag" > /dev/null 2>&1 || gh release create "$tag" --prerelease --target "${{ github.sha }}" --title "Render: ${{ needs.plan.outputs.film }} (${{ needs.plan.outputs.quality }})" --notes "Rendered by the render workflow. Replaced on every run."
+          gh release upload "$tag" out/*.mp4 --clobber

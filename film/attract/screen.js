@@ -3,7 +3,7 @@
 // speedometer, typed captions, and the fades and mosaics between stages.
 // Everything draws into RGBA8 at the film's native 384 x 216.
 
-import { drawText, textWidth, band, mosaic, CELL } from '../src/pixelfont.js';
+import { drawText, textWidth, band, mosaic, CELL } from '../../src/pixelfont.js';
 
 export const W = 384;
 export const H = 216;

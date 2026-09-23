@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SECTIONS, FRAMES, FPS, BAR, DURATION, frame, nightCar, morningCar, TITLE, WISH } from '../film/score.js';
-import { arrangement, chordAt } from '../film/music.js';
-import { logoTimes } from '../film/sfx.js';
-import { clockText, W, H } from '../film/screen.js';
-import { renderFrame } from '../film/frame.js';
+import { SECTIONS, FRAMES, FPS, BAR, DURATION, frame, nightCar, morningCar, TITLE, WISH } from '../film/attract/score.js';
+import { arrangement, chordAt } from '../film/attract/music.js';
+import { logoTimes } from '../film/attract/sfx.js';
+import { clockText, W, H } from '../film/attract/screen.js';
+import { renderFrame } from '../film/attract/frame.js';
 import { PLACES, buildPlace } from '../src/scenes/index.js';
 import { quantize, enlarge } from '../src/retro.js';
 import { drawText } from '../src/pixelfont.js';

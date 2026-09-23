@@ -2,8 +2,8 @@
 // of src/audio/synth.js, the effects from film/sfx.js, one hall and one
 // echo for everything, and a limiter on the master. Returns a WAV.
 
-import { Mix, RATE, mtof, ep, bass, lead, bell, blip, pad, kick, snare, clap, hat, shaker, crash, tom } from '../src/audio/synth.js';
-import { encodeWAV } from '../src/audio/wav.js';
+import { Mix, RATE, mtof, ep, bass, lead, bell, blip, pad, kick, snare, clap, hat, shaker, crash, tom } from '../../src/audio/synth.js';
+import { encodeWAV } from '../../src/audio/wav.js';
 import { arrangement } from './music.js';
 import { effects, logoTimes } from './sfx.js';
 import { DURATION } from './score.js';

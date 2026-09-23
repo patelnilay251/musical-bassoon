@@ -4,11 +4,11 @@
 // paint it, then reduce it to the board's palette and draw the screen
 // layer on top.
 
-import { buildPlace } from '../src/scenes/index.js';
-import { Renderer, toRGBA } from '../src/render.js';
-import { fit } from '../src/camera.js';
-import { setMotion } from '../src/world/motion.js';
-import { quantize } from '../src/retro.js';
+import { buildPlace } from '../../src/scenes/index.js';
+import { Renderer, toRGBA } from '../../src/render.js';
+import { fit } from '../../src/camera.js';
+import { setMotion } from '../../src/world/motion.js';
+import { quantize } from '../../src/retro.js';
 import * as S from './screen.js';
 
 export const LOOK = { bits: 3, dither: 0.7 };
