@@ -48,7 +48,7 @@ const SH = new Float64Array(3);
 // grays take the sky's tone; colored surfaces keep their own hue, deeper,
 // richer and turned a little toward the sky's, the way a painter mixes a
 // shadow instead of graying it (a pink wall goes coral in shade, not mauve).
-function paintShade(c, A, out, o) {
+export function paintShade(c, A, out, o) {
   const [hc, sc, vc] = rgbToHsv(c[0], c[1], c[2]);
   const [ha, , va] = rgbToHsv(A[0], A[1], A[2]);
   // Warm colors turn by way of red; the rest straight toward the sky.

@@ -7,6 +7,7 @@ A motel on the coast highway, a boulevard laid out on the midsummer sunset, a be
 ![Paloma Bay in the Cobalt look: the motel, the boulevard at sunset, the beach, the house, the marina, the motel walkway, the beach at sunset, the docks, the diner](docs/gallery/cobalt/town.png)
 
 - **Visit the town:** [`docs/index.html`](docs/index.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/)). Full screen, one picture at a time, nothing else on it. Drag across the painting to pass the day. `←` `→` go to another place and `↑` `↓` to another view of it; on a phone, tap the edges or flick up and down. `Space` lets the day go by on its own, and `L` (or the switch in the corner) turns the town to the other look. The page opens wherever the visitor happens to be at your local time, in the look you chose last.
+- **Walk the town:** [`docs/live.html`](docs/live.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/live.html)). All five places, painted live on your graphics chip by the same rules, in either look. Click and walk with `W` `A` `S` `D` (`shift` to run) and look around with the mouse. Climb the motel stairs to the walkway, walk down the boulevard to the sea, go up the gangway from the docks to the quay. `1` to `5` (or the names at the top) take you to another place, `[` `]` or the wheel change the hour, and `space` lets the day pass. It needs WebGPU: Chrome, Edge, or Safari 26 and later.
 - **The book:** [`docs/book.html`](docs/book.html). *Wish You Were Here*: ten postcards from one summer day, sent by someone who never appears in any of them, in either look.
 - **The film:** [`docs/day.html`](docs/day.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/day.html)). *One Day in Paloma Bay*: three minutes of one summer day, passing through every postcard in the book, with its own score. The 1080p master is on the [releases page](https://github.com/patelnilay251/musical-bassoon/releases/tag/render-day-final).
 - **The arcade version:** [`docs/film.html`](docs/film.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/film.html)). *Paloma Bay, the attract mode*: 86 seconds of an arcade game from a summer that never happened, with its own music.
@@ -82,6 +83,39 @@ The first version rendered a resort. This one tries to paint a town, the way an 
 - **Verticals stay vertical.** Every composition is built level, like a view camera, and a lens shift puts the horizon where the picture wants it (`src/camera.js`). Taller screens keep the width of the view and gain sky. Long lenses flatten the perspective.
 - **Finish:** neon and lamps burn past white, and a glow pass lets them bleed. Distance lays a veil of the horizon's color over things. It is heavier in Pastel, and in Cobalt faint, so distant things stay crisp. Pastel gets a fine grain, strongest in the midtones so whites stay clean. Cobalt gets only a faint dither that keeps its deep gradients from banding: acrylic sprayed smooth.
 
+## Walking the town
+
+The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain. A live frame and a painted one of the same view are within one to three levels of 255 on average, apart from the edges of things.
+
+- **The camera stays level**, as in the paintings. Looking up or down slides the frame, like the rising front of a view camera, so the motel's posts and the palms stay vertical.
+- **Walking** (`src/live/walk.js`) reads the place's own triangles into a grid of 25 cm cells (a little coarser on the long boulevard): where the floors are, what stands in the way, and where the water is. You can step up a curb, climb a stair or a gangway, but not walk through a wall, and you never stand below the water. Each walk starts where the place's hero picture is taken. The marina is the exception: its hero picture is taken from the yacht club's terrace, which has no stairs down, so the walk starts at the end of a dock.
+- **Back faces are culled, as the painter does.** Open water is one sheet seen from above. The mirrored camera sees it from below, and it must not paint over the boats reflected in it.
+- **Big triangles are cut small near the camera.** The highway and its painted lines run for twelve kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it.
+
+### Up close
+
+A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town. The shaders' additions fade out within twenty meters (the rooms behind the glass within fourteen), so from where the painted views are taken the live town still looks like them. The geometry is added to a finished world (`src/live/detail.js`), never built into it.
+
+- **A second shadow map follows the walker.** It is 40 m across at a centimeter a texel, read with nine taps. The whole-box map is ten centimeters a texel on the boulevard. Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first three degrees, so a low sun along a wall doesn't paint it in teeth.
+- **Grain, by material:**
+  - sprayed stucco on the walls;
+  - stones in the asphalt, with sealed cracks that wander;
+  - concrete speckle, and each slab poured a shade of its own;
+  - fibers up the palm trunks;
+  - sand;
+  - wood grain along the boards;
+  - blades of grass;
+  - clusters of leaves on the hedges and bushes, in a noise that runs all the way round.
+
+  Every octave fades before a pixel is a third of its size, so nothing shimmers.
+- **Rooms behind the glass.** Interior mapping: each pane opens onto a room that is not there. The ray from the eye goes on past the glass to the room's back wall, a side wall, the floor or the ceiling, and meets what stands in the room.
+  - Motel rooms have curtains and a bed.
+  - The boulevard has three kinds of shop: shelves of goods and a counter, a café with a menu board and tables, and a boutique with clothes on a rail.
+  - Elsewhere there is a sofa and a picture of the sea.
+
+  By day the painted glass lies over the room as a reflection would, and lightens it. After dark the lit rooms glow, and their lamps light what is in them.
+- **Hardware and framing.** The motel doors have brass knobs, kick plates and room numbers, 101 up along the ground floor and 201 up along the walkway, lettered in the town's sign font. The big panes of the shops are framed with mullions and transoms, except where the building already has frames of its own, like the diner's window band.
+
 ## How it works
 
 **Rasterizer** (`src/raster.js`). Triangles are clipped against the near plane and rasterized with edge functions into a visibility buffer: for each sample, the nearest triangle's id and depth. Shading runs once per visible sample, afterwards, so overdraw is nearly free. Frames render in 64-pixel tiles with supersampling.
@@ -107,8 +141,8 @@ The boulevard is built in a road frame and turned onto the sunset bearing. Every
 Node 22 or newer. `npm install` brings in esbuild, which is used only to bundle the site.
 
 ```sh
-npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films
-npm run build            # docs/index.html (the town) and docs/workshop.html (the old viewer)
+npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town
+npm run build            # docs/index.html (the town), docs/live.html (the live town) and docs/workshop.html (the old viewer)
 npm run book             # the postcards in both looks, in parallel on every core, into docs/book/<look>/ and docs/book.html
 npm run gallery          # the contact sheets above, in both looks, into docs/gallery/<look>/
 npm run film -- --film day   # One Day in Paloma Bay, its poster and docs/day.html (needs ffmpeg)
