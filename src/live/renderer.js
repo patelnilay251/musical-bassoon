@@ -83,12 +83,13 @@ export class LiveRenderer {
         },
       ],
     };
-    const surface = (samples) =>
+    // Back faces are culled but for two-sided triangles, as in raster.js.
+    const surface = (samples, cullMode) =>
       device.createRenderPipeline({
         layout: sceneLayout,
         vertex: { ...vertex, entryPoint: 'vs_main' },
         fragment: { module: scene, entryPoint: 'fs_main', targets: [{ format: HDR }] },
-        primitive: { topology: 'triangle-list', cullMode: 'none' },
+        primitive: { topology: 'triangle-list', frontFace: 'ccw', cullMode },
         depthStencil: { format: DEPTH, depthWriteEnabled: true, depthCompare: 'greater' },
         multisample: { count: samples },
       });
@@ -101,9 +102,11 @@ export class LiveRenderer {
         depthStencil: { format: DEPTH, depthWriteEnabled: false, depthCompare: 'equal' },
         multisample: { count: samples },
       });
-    this.surfacePipe = surface(SAMPLES);
+    this.surfacePipe = surface(SAMPLES, 'back');
+    this.surfaceDoublePipe = surface(SAMPLES, 'none');
     this.skyPipe = sky(SAMPLES);
-    this.surfaceMirrorPipe = surface(1);
+    this.surfaceMirrorPipe = surface(1, 'back');
+    this.surfaceMirrorDoublePipe = surface(1, 'none');
     this.skyMirrorPipe = sky(1);
     this.shadowPipe = device.createRenderPipeline({
       layout: sceneLayout,
@@ -159,16 +162,19 @@ export class LiveRenderer {
     const mats = packMaterials(world);
     const lights = packLights(world);
     this.vertexCount = mesh.count;
+    this.singleCount = mesh.single;
     this.lightCount = lights.count;
     this.vertices = this.buffer(mesh.data, U.VERTEX);
     this.mats = this.buffer(mats.data, U.STORAGE);
     this.lanes = this.buffer(mats.lanes, U.STORAGE);
     this.lightBuf = this.buffer(lights.data, U.STORAGE);
     this.skyBuf = this.buffer(packSky(world.sky), U.STORAGE);
-    this.poolBuf = this.buffer(packPool(world.pool), U.UNIFORM);
+    this.poolBuf = this.buffer(packPool(world.pool, world.water), U.UNIFORM);
     this.shades = this.device.createBuffer({ size: Math.max(1, world.materials.length) * 48, usage: U.STORAGE | U.COPY_DST });
     this.worldBuffers = [this.vertices, this.mats, this.lanes, this.lightBuf, this.skyBuf, this.poolBuf, this.shades];
-    this.mirrorY = world.pool ? world.pool.waterY : null;
+    // What the world mirrors, as Renderer does: open water (the whole
+    // frame) or a pool (its rectangle).
+    this.mirror = world.mirror || (world.pool ? { y: world.pool.waterY, rect: world.pool } : null);
     this.hours = null;
     this.bindGroups = null;
   }
@@ -216,9 +222,7 @@ export class LiveRenderer {
   }
 
   // Does any part of the pool's surface fall inside the frame?
-  inView(vp) {
-    const P = this.world.pool;
-    const h = P.waterY;
+  inView(vp, P, h) {
     const corners = [
       [P.x0, P.z0],
       [P.x1, P.z0],
@@ -232,9 +236,7 @@ export class LiveRenderer {
 
   // The pool's rectangle in the mirrored frame, padded for the ripples, as
   // [x, y, w, h] in the reflection texture's pixels.
-  poolRect(vp) {
-    const P = this.world.pool;
-    const h = P.waterY;
+  poolRect(vp, P, h) {
     let x0 = Infinity;
     let y0 = Infinity;
     let x1 = -Infinity;
@@ -262,6 +264,17 @@ export class LiveRenderer {
     const bx = Math.min(this.rw, Math.ceil(x1) + pad);
     const by = Math.min(this.rh, Math.ceil(y1) + pad);
     return [ax, ay, Math.max(0, bx - ax), Math.max(0, by - ay)];
+  }
+
+  // Rows of the mirrored frame open water can look up, for a level camera
+  // (Renderer.reflectionBand): row y sees its image at -y - 2 shift.
+  band(cam) {
+    const level = Math.abs(cam.target[1] - cam.eye[1]) < 1e-6;
+    if (!level) return [0, 0, this.rw, this.rh];
+    const sh = cam.shift ?? 0;
+    const y0 = Math.max(0, ((sh - 0.08) * this.rh) | 0);
+    const y1 = Math.min(this.rh, Math.ceil(((1 + sh + 0.16) / 2) * this.rh));
+    return [0, y0, this.rw, Math.max(0, y1 - y0)];
   }
 
   resize(W, H) {
@@ -343,13 +356,16 @@ export class LiveRenderer {
     const pixelAngle = (2 * Math.tan((cam.fovY * Math.PI) / 360)) / H;
     // The mirrored pass only where the pool can show it, as buildReflection
     // does: skipped when the pool is out of view, else cut to its rectangle.
-    let mirror = this.mirrorY !== null && cam.eye[1] > this.mirrorY && this.inView(viewProj(cam, W / H));
-    const mcam = mirror ? mirrorCamera(cam, this.mirrorY) : null;
+    const M = this.mirror;
+    let mirror = Boolean(M) && cam.eye[1] > M.y && (!M.rect || this.inView(viewProj(cam, W / H), M.rect, M.y));
+    const mcam = mirror ? mirrorCamera(cam, M.y) : null;
     const mirrorVP = mirror ? viewProj(mcam, W / H) : null;
-    const scissor = mirror ? this.poolRect(mirrorVP) : null;
-    if (scissor && scissor[2] <= 0) mirror = false;
-    const common = { S: this.S, look: this.look, shadow: this.shadow, shadowSize: this.shadowSize, rippleT, starT, lightCount: this.lightCount, hasPool: Boolean(this.world.pool), seaLevel: this.world.seaLevel };
-    d.queue.writeBuffer(this.frameMain, 0, packFrame({ ...common, cam, W, H, mirrorVP, reflection: mirror }));
+    const scissor = mirror ? (M.rect ? this.poolRect(mirrorVP, M.rect, M.y) : this.band(cam)) : null;
+    if (scissor && (scissor[2] <= 0 || scissor[3] <= 0)) mirror = false;
+    // Lookups stay inside what was painted (texel centers, as sampleReflection).
+    const reflRect = mirror ? [(scissor[0] + 0.5) / this.rw, (scissor[1] + 0.5) / this.rh, (scissor[0] + scissor[2] - 0.501) / this.rw, (scissor[1] + scissor[3] - 0.501) / this.rh] : [0, 0, 1, 1];
+    const common = { S: this.S, look: this.look, shadow: this.shadow, shadowSize: this.shadowSize, rippleT, starT, lightCount: this.lightCount, hasPool: Boolean(this.world.pool), seaLevel: this.world.seaLevel, mirrorY: M ? M.y : 0 };
+    d.queue.writeBuffer(this.frameMain, 0, packFrame({ ...common, cam, W, H, mirrorVP, reflection: mirror, reflRect }));
     if (mirror) d.queue.writeBuffer(this.frameMirror, 0, packFrame({ ...common, cam: mcam, W: this.rw, H: this.rh, pixelAngle, mirror: true, reflection: false }));
     const blurR = Math.max(1, Math.round(0.012 * H * 0.5));
     d.queue.writeBuffer(this.postMain, 0, new Float32Array([W, H, this.hw, this.hh, 1.1, 0.9, this.look.grain, blurR, 0, 0, 0, 0]));
@@ -376,9 +392,11 @@ export class LiveRenderer {
       });
       pass.setBindGroup(0, this.bindGroups.mirror);
       pass.setScissorRect(...scissor);
-      pass.setPipeline(this.surfaceMirrorPipe);
       pass.setVertexBuffer(0, this.vertices);
-      pass.draw(this.vertexCount);
+      pass.setPipeline(this.surfaceMirrorPipe);
+      pass.draw(this.singleCount);
+      pass.setPipeline(this.surfaceMirrorDoublePipe);
+      pass.draw(this.vertexCount - this.singleCount, 1, this.singleCount);
       pass.setPipeline(this.skyMirrorPipe);
       pass.draw(3);
       pass.end();
@@ -390,9 +408,11 @@ export class LiveRenderer {
       });
       pass.setBindGroup(0, this.bindGroups.main);
       if (!this.skip.has('surface')) {
-        pass.setPipeline(this.surfacePipe);
         pass.setVertexBuffer(0, this.vertices);
-        pass.draw(this.vertexCount);
+        pass.setPipeline(this.surfacePipe);
+        pass.draw(this.singleCount);
+        pass.setPipeline(this.surfaceDoublePipe);
+        pass.draw(this.vertexCount - this.singleCount, 1, this.singleCount);
       }
       if (!this.skip.has('sky')) {
         pass.setPipeline(this.skyPipe);

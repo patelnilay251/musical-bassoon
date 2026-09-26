@@ -22,6 +22,9 @@ import { lookOf } from '../looks.js';
 export const NAME = 'The Marina';
 // Compositions, the first one the place's hero.
 export const VIEWS = ['harbor', 'slips', 'quay', 'lighthouse'];
+// A walk starts at the far end of a dock: the hero view is taken from the
+// yacht club's terrace, which has no stairs.
+export const START = 'slips';
 const SEED = 1986;
 const QUAY = 1.4;
 const DOCK = 0.45;

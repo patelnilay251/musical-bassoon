@@ -68,7 +68,8 @@ struct Frame {
   haze2: vec4f,      // depth, painted shade, light count, pool strokes
   frond: vec4f,      // base, tip, across, warm
   frond2: vec4f,     // warm tip, flecks, has pool, has reflection
-  shadowInfo: vec4f, // texel (m), shadow on, depth bias, -
+  shadowInfo: vec4f, // texel (m), shadow on, depth bias, mirror height
+  reflRect: vec4f,   // the part of the mirror that was painted, in uv
 };
 
 struct Material {
@@ -95,16 +96,23 @@ struct Light {
   k: f32,
 };
 
+// A place's water: a pool, open water (a harbor or the sea off a beach),
+// or both.
 struct Pool {
-  rect: vec4f,    // x0, x1, z0, z1
-  levels: vec4f,  // water y, floor y, wave count, -
+  rect: vec4f,    // pool x0, x1, z0, z1
+  levels: vec4f,  // pool water y, floor y, pool wave count, open-water wave count
   tile: vec4f,
   lane: vec4f,
   water: vec4f,
   glow: vec4f,
-  waves: array<vec4f, 4>, // kx, kz, w, phase
+  waves: array<vec4f, 4>, // the pool's: kx, kz, w, phase
   amps: vec4f,
-  pad: vec4f,
+  hwaves: array<vec4f, 4>, // open water's
+  hamps: vec4f,
+  near: vec4f,    // open water near, falloff
+  far: vec4f,     // open water far, shallows (1/0)
+  shallow: vec4f, // shallows: a.x, a.z, d, w
+  shallowColor: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> F: Frame;
@@ -730,19 +738,24 @@ struct Ripple {
   along: f32,
 };
 
-fn ripple(px: f32, pz: f32, tm: f32) -> Ripple {
+fn wave(open: bool, i: u32) -> vec4f {
+  return select(pool.waves[i], pool.hwaves[i], open);
+}
+
+fn ripple(px: f32, pz: f32, tm: f32, open: bool) -> Ripple {
   var hx = 0.0;
   var hz = 0.0;
-  let nw = u32(pool.levels.z);
+  let nw = u32(select(pool.levels.z, pool.levels.w, open));
   for (var i = 0u; i < nw; i++) {
-    let w = pool.waves[i];
-    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * pool.amps[i];
+    let w = wave(open, i);
+    let a = select(pool.amps[i], pool.hamps[i], open);
+    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * a;
     hx += cw * w.x;
     hz += cw * w.y;
   }
-  let w0 = pool.waves[0];
-  let w1 = pool.waves[1];
-  let w2 = pool.waves[2];
+  let w0 = wave(open, 0u);
+  let w1 = wave(open, 1u);
+  let w2 = wave(open, 2u);
   var r: Ripple;
   r.phase = w0.x * px + w0.y * pz + w0.z * tm + w0.w + 0.9 * sin(w1.x * px + w1.y * pz + w1.z * tm + w1.w) + 0.45 * sin(w2.x * px + w2.y * pz + w2.z * tm + w2.w);
   r.tilt = vec2f(-hx, -hz);
@@ -810,13 +823,14 @@ fn reflection(p: vec3f, d: vec3f, nx: f32, nz: f32, reach: f32) -> vec4f {
   let q = vec3f(p.x - 2.0 * d.y * nx * reach, p.y - 2.0 * dn * reach, p.z - 2.0 * d.y * nz * reach);
   let cl = F.mirrorVP * vec4f(q, 1.0);
   let cw = max(0.05, cl.w);
-  let uv = clamp(vec2f((cl.x / cw + 1.0) * 0.5, (1.0 - cl.y / cw) * 0.5), vec2f(0.0), vec2f(1.0));
+  // Held inside the part of the mirror that was painted, as Renderer does.
+  let uv = clamp(vec2f((cl.x / cw + 1.0) * 0.5, (1.0 - cl.y / cw) * 0.5), F.reflRect.xy, F.reflRect.zw);
   return vec4f(textureSampleLevel(reflTex, linearSampler, uv, 0.0).rgb, 1.0);
 }
 
 fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
   let tm = F.screen.z;
-  let R = ripple(p.x, p.z, tm);
+  let R = ripple(p.x, p.z, tm, false);
   var nrm = normalize(vec3f(R.tilt.x, 1.0, R.tilt.y));
   let cosi = max(0.0, -dot(nrm, d));
   // Stylized Fresnel: reflections never swamp the turquoise.
@@ -884,9 +898,45 @@ fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
 }
 `;
 
-// ------------------------------------------------------------------ entry points
+// ------------------------------------------------------------------ entry points (open water first)
 
 const ENTRY = /* wgsl */ `
+// Open water: a deep body color that cools with distance, aqua shallows
+// over sand, the mirrored world, a low sun's path, bands and crests.
+fn shadeHarbor(p: vec3f, d: vec3f, dist: f32) -> vec3f {
+  let R = ripple(p.x, p.z, F.screen.z, true);
+  let nrm = normalize(vec3f(R.tilt.x, 1.0, R.tilt.y));
+  let cosi = max(0.0, -dot(nrm, d));
+  let fres = 0.1 + 0.62 * powz(1.0 - cosi, 3.0);
+  let k = 1.0 - exp(-dist / pool.near.w);
+  var w = pool.near.rgb + (pool.far.rgb - pool.near.rgb) * k;
+  if (pool.far.w > 0.5) {
+    let depth = pool.shallow.x * p.x + pool.shallow.y * p.z - pool.shallow.z;
+    let a = exp(-max(0.0, depth) / pool.shallow.w);
+    w += (pool.shallowColor.rgb - w) * a;
+  }
+  var b = w * (F.amb.rgb + F.key.rgb * 0.55);
+  let refl = reflection(p, d, nrm.x, nrm.z, 12.0);
+  if (refl.w > 0.5) {
+    b += (refl.rgb * vec3f(0.85, 0.95, 1.0) - b) * fres;
+  } else {
+    b += (skyColor(vec3f(d.x, -d.y, d.z), false) - b) * fres;
+  }
+  let sd = F.sunDir.xyz;
+  if (F.key.w > 0.5 && sd.y > -0.02 && sd.y < 0.55) {
+    let c = d.x * sd.x - d.y * sd.y + d.z * sd.z;
+    let spread = 0.955 + 0.035 * ss(0.0, 0.5, sd.y);
+    if (c > spread) {
+      let nse = valueNoise(p.x * 0.09 + R.phase * 0.08, p.z * 0.9 + p.x * 0.02);
+      let dash = ss(0.5, 0.6, nse);
+      let kk = dash * ss(spread, 0.999, c) * (1.0 - ss(0.3, 0.55, sd.y));
+      let warm = ss(15.0, 0.0, F.sunDir.w);
+      b += (vec3f(1.08, mix(1.02, 0.84, warm), mix(0.92, 0.58, warm)) - b) * kk;
+    }
+  }
+  return paintWater(b, dist, 0.7, R);
+}
+
 struct VIn {
   @location(0) pos: vec3f,
   @location(1) nrm: vec3f,
@@ -920,7 +970,7 @@ fn fs_main(v: VOut) -> @location(0) vec4f {
   let mirrored = F.skyLook2.w > 0.5;
   if (mirrored) {
     // The mirrored camera sees only what stands above the water.
-    if ((flags & (UNDERWATER | NOREFLECT)) != 0u || v.world.y < pool.levels.x - 0.002) { discard; }
+    if ((flags & (UNDERWATER | NOREFLECT)) != 0u || v.world.y < F.shadowInfo.w - 0.002) { discard; }
   }
   let toP = v.world - F.eye.xyz;
   let dist = max(length(toP), 0.05);
@@ -931,6 +981,8 @@ fn fs_main(v: VOut) -> @location(0) vec4f {
   if ((flags & SMOOTH) != 0u) { n = normalize(n); }
   if (kind == K_WATER) {
     col = shadeWater(v.world, d, dist);
+  } else if (kind == K_HARBOR) {
+    col = shadeHarbor(v.world, d, dist);
   } else {
     col = shadeSurface(m, flags, v.ids.y, v.world, n, v.uv, d, dist);
     col = haze(col, flags, d, dist);

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>The Motel, live · Paloma Bay</title>
-<meta name="description" content="Walk through the motel in Paloma Bay, painted live on your graphics chip by the same rules as the painted town.">
+<title>Paloma Bay, live</title>
+<meta name="description" content="Walk through Paloma Bay, painted live on your graphics chip by the same rules as the painted town.">
 <style>
   :root {
     --ink: rgba(255, 253, 247, 0.92);
@@ -105,6 +105,30 @@
   }
   .looks button + button::before { content: "/"; margin: 0 0.7em; opacity: 0.55; }
   .looks button:hover, .looks button[aria-pressed="true"] { color: var(--ink); }
+  /* The places, top left: the one you are in, in full ink. */
+  .places {
+    position: fixed;
+    left: max(28px, 3.2vw);
+    top: max(24px, 3.4vh);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    text-shadow: var(--shadow);
+  }
+  .places button {
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-shadow: inherit;
+    color: var(--ink-soft);
+    background: none;
+    border: 0;
+    padding: 0;
+    margin-right: 1.6em;
+    cursor: pointer;
+  }
+  .places button:hover, .places button[aria-pressed="true"] { color: var(--ink); }
+  .places button:focus-visible, .looks button:focus-visible { outline: 1px solid var(--ink-soft); outline-offset: 3px; }
   #hint {
     position: fixed;
     left: 50%;
@@ -139,27 +163,30 @@
   }
   #nogpu a { color: var(--ink); }
   body.nogpu #nogpu { display: grid; }
-  body.nogpu #hint, body.nogpu .caption, body.nogpu .day { display: none; }
+  body.nogpu #hint, body.nogpu .caption, body.nogpu .day, body.nogpu .places { display: none; }
   @media (hover: none) {
     #hint .keys { display: none; }
     #hint .touch { display: inline; }
   }
   @media (max-width: 640px) {
     #hint { font-size: 11px; }
+    .places { top: auto; bottom: calc(max(30px, 4.2vh) + 58px); letter-spacing: 0.18em; }
+    .places button { margin-right: 1em; }
     .corner { bottom: auto; top: max(22px, env(safe-area-inset-top)); letter-spacing: 0.22em; }
     .corner a { margin-left: 1.3em; }
   }
 </style>
 </head>
 <body>
-<canvas id="live" aria-label="The motel in Paloma Bay, live" role="img"></canvas>
+<canvas id="live" aria-label="A place in Paloma Bay, live" role="img"></canvas>
 <div class="caption" aria-live="polite">
   <div class="town">Paloma Bay &middot; live</div>
-  <div class="where"><span id="place">The Motel</span><span class="sep">&middot;</span><span id="clock">&nbsp;</span></div>
+  <div class="where"><span id="place">&nbsp;</span><span class="sep">&middot;</span><span id="clock">&nbsp;</span></div>
 </div>
+<nav class="places" id="places" aria-label="Places"></nav>
 <nav class="corner"><span class="looks" id="looks" role="group" aria-label="Look"></span><a href="index.html" id="stills">Stills</a></nav>
 <div class="day" id="day" aria-label="Time of day"><div id="sun"></div></div>
-<div id="hint"><span class="big keys">Click to walk</span><span class="big touch">Drag to walk and look</span><br><span class="keys"><span><kbd>W A S D</kbd> walk</span> <span><kbd>mouse</kbd> look</span> <span><kbd>shift</kbd> run</span></span><br><span class="keys"><span><kbd>[ ]</kbd> or <kbd>wheel</kbd> the hour</span> <span><kbd>space</kbd> let it pass</span> <span><kbd>L</kbd> another look</span></span><span class="touch">left side to walk, right side to look</span></div>
+<div id="hint"><span class="big keys">Click to walk</span><span class="big touch">Drag to walk and look</span><br><span class="keys"><span><kbd>W A S D</kbd> walk</span> <span><kbd>mouse</kbd> look</span> <span><kbd>shift</kbd> run</span></span><br><span class="keys"><span><kbd>[ ]</kbd> or <kbd>wheel</kbd> the hour</span> <span><kbd>space</kbd> let it pass</span> <span><kbd>L</kbd> another look</span> <span><kbd>1&ndash;5</kbd> another place</span></span><span class="touch">left side to walk, right side to look</span></div>
 <div id="nogpu"><div>This part of Paloma Bay is painted live on your graphics chip, which needs a browser with WebGPU: Chrome, Edge, or Safari 26 and later.<br><a href="index.html">The painted town</a> works everywhere.</div></div>
 <script>/*ENGINE*/</script>
 </body>

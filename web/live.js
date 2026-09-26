@@ -1,13 +1,13 @@
-// Paloma Bay, live: walk through a place painted on the GPU as fast as you
-// move, by the same rules as the painted town (src/live/). Click to walk:
-// W A S D or the arrows, the mouse to look, shift to run. [ and ] or the
-// wheel change the hour, space lets the day pass, L turns to the other
-// look. The camera stays level the way the paintings do: looking up or
+// Paloma Bay, live: walk through the town painted on the GPU as fast as
+// you move, by the same rules as the painted town (src/live/). Click to
+// walk: W A S D or the arrows, the mouse to look, shift to run. [ and ] or
+// the wheel change the hour, space lets the day pass, L turns to the other
+// look, 1 to 5 (or the names at the top) go to another place. The camera stays level the way the paintings do: looking up or
 // down slides the frame, like the rising front of a view camera, so
 // verticals stay vertical.
 
-import { buildPlace } from '../src/scenes/index.js';
-import { propsAt, clock } from '../src/visitor.js';
+import { buildPlace, PLACES, ORDER } from '../src/scenes/index.js';
+import { propsAt, clock, whereIs } from '../src/visitor.js';
 import { sunDirection } from '../src/sky.js';
 import { LOOKS, LOOK_NAMES, DEFAULT_LOOK } from '../src/looks.js';
 import { fit } from '../src/camera.js';
@@ -15,8 +15,6 @@ import { DEG } from '../src/math.js';
 import { createLive } from '../src/live/renderer.js';
 import { buildWalk, walk, standAt, WALKER } from '../src/live/walk.js';
 
-const PLACE = 'motel';
-const START = 'front'; // stand where the hero picture is taken
 const MIN_H = 4.5;
 const MAX_H = 23.75;
 const FOV = 52; // vertical, at the 3:2 frame the views are composed for
@@ -29,6 +27,7 @@ const MAX_SHIFT = 0.95;
 const $ = (id) => document.getElementById(id);
 const canvas = $('live');
 const state = {
+  place: 'motel',
   hours: 12,
   look: DEFAULT_LOOK,
   playing: false,
@@ -52,12 +51,16 @@ async function start() {
   const now = new Date();
   let h = now.getHours() + now.getMinutes() / 60;
   if (h < MIN_H) h = MAX_H;
-  const m = location.hash.match(/^#(\d+(?:\.\d+)?)(?:\/([a-z]+))?/);
-  if (m) h = Number(m[1]);
+  // The address says where, when and how: #place/hours/look.
+  const m = location.hash.match(/^#(?:([a-z]+)\/)?(\d+(?:\.\d+)?)(?:\/([a-z]+))?/);
+  if (m) h = Number(m[2]);
   state.hours = Math.min(MAX_H, Math.max(MIN_H, h));
-  const asked = [m && m[2], new URLSearchParams(location.search).get('look'), saved()].find((l) => LOOK_NAMES.includes(l));
+  const asked = [m && m[3], new URLSearchParams(location.search).get('look'), saved()].find((l) => LOOK_NAMES.includes(l));
   state.look = asked ?? DEFAULT_LOOK;
+  // Otherwise open wherever the visitor is right now, as the site does.
+  state.place = m && PLACES[m[1]] ? m[1] : whereIs(state.hours);
   showLooks();
+  showPlaces();
   caption();
   try {
     live = await createLive(canvas);
@@ -66,12 +69,21 @@ async function start() {
     document.body.classList.add('nogpu');
     return;
   }
+  enter(state.place);
+  requestAnimationFrame(frame);
+}
+
+// Go to a place and stand where its hero picture is taken (or where the
+// place says a walk starts).
+function enter(place) {
+  state.place = place;
   rebuild();
-  const v = world.views[START];
-  state.pos = standAt(grid, v.eye[0], v.eye[2]) ?? { x: v.eye[0], y: 0, z: v.eye[2] };
+  const v = world.views[PLACES[place].START ?? PLACES[place].VIEWS[0]];
+  state.pos = standAt(grid, v.eye[0], v.eye[2], v.eye[1]) ?? { x: v.eye[0], y: v.eye[1] - WALKER.eye, z: v.eye[2] };
   state.yaw = Math.atan2(v.target[0] - v.eye[0], -(v.target[2] - v.eye[2]));
   state.shift = v.shift ?? 0;
-  requestAnimationFrame(frame);
+  showPlaces();
+  caption();
 }
 
 function saved() {
@@ -85,15 +97,34 @@ function saved() {
 // Build the place as it stands at this hour, in this look; a new world
 // only when something in it has changed (the car, the sign, the look).
 function rebuild() {
-  const props = propsAt(PLACE, state.hours);
-  const key = `${state.look}|${JSON.stringify(props)}`;
+  const props = propsAt(state.place, state.hours);
+  const key = `${state.place}|${state.look}|${JSON.stringify(props)}`;
   if (key === built) return;
-  const carMoved = !world || world.props?.car !== props.car || world.look?.name !== state.look;
+  const carMoved = !world || world.id !== state.place || world.props?.car !== props.car || world.look?.name !== state.look;
   built = key;
-  world = buildPlace(PLACE, props, state.look);
+  world = buildPlace(state.place, props, state.look);
   live.setWorld(world);
   // The walking grid only needs redoing when something solid moved.
   if (carMoved || !grid) grid = buildWalk(world);
+}
+
+function showPlaces() {
+  const el = $('places');
+  if (!el.children.length) {
+    ORDER.forEach((id, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.place = id;
+      b.textContent = PLACES[id].NAME.replace(/^The /, '');
+      b.title = `${PLACES[id].NAME} (${i + 1})`;
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (id !== state.place) enter(id);
+      });
+      el.append(b);
+    });
+  }
+  for (const b of el.children) b.setAttribute('aria-pressed', String(b.dataset.place === state.place));
 }
 
 // ---------------------------------------------------------------- the frame
@@ -188,13 +219,15 @@ let hashTimer = 0;
 function caption() {
   const t = clock(state.hours);
   $('clock').textContent = t;
-  document.title = `The Motel, ${t}, live · Paloma Bay`;
+  const name = PLACES[state.place].NAME;
+  $('place').textContent = name;
+  document.title = `${name}, ${t}, live · Paloma Bay`;
   $('sun').style.left = `${((state.hours - MIN_H) / (MAX_H - MIN_H)) * 100}%`;
   const el = (Math.asin(sunDirection(state.hours)[1]) * 180) / Math.PI;
   $('sun').style.background = el > 4 ? '#fff4d8' : el > -6 ? '#ffa373' : '#aebdff';
-  $('stills').href = `index.html#${PLACE}/${START}/${state.hours.toFixed(2)}/${state.look}`;
+  $('stills').href = `index.html#${state.place}/${PLACES[state.place].VIEWS[0]}/${state.hours.toFixed(2)}/${state.look}`;
   clearTimeout(hashTimer);
-  hashTimer = setTimeout(() => history.replaceState(null, '', `#${state.hours.toFixed(2)}/${state.look}`), 250);
+  hashTimer = setTimeout(() => history.replaceState(null, '', `#${state.place}/${state.hours.toFixed(2)}/${state.look}`), 250);
 }
 
 function setLook(name) {
@@ -248,6 +281,7 @@ addEventListener('keydown', (e) => {
   else if (c === 'BracketLeft' || c === 'Comma') setHours(state.hours - 0.25);
   else if (c === 'Space') state.playing = !state.playing;
   else if (c === 'KeyL') setLook(LOOK_NAMES[(LOOK_NAMES.indexOf(state.look) + 1) % LOOK_NAMES.length]);
+  else if (/^Digit[1-9]$/.test(c) && ORDER[Number(c.slice(5)) - 1]) enter(ORDER[Number(c.slice(5)) - 1]);
   else if (/^(Key[WASD]|Arrow|Shift)/.test(c)) state.keys.add(c);
   else return;
   e.preventDefault();
@@ -310,6 +344,7 @@ canvas.addEventListener('pointercancel', lift);
 window.__live = {
   state,
   place: () => world,
+  enter,
   ready: () => Boolean(live && world),
   snapshot: () => live.snapshot(camera(), { rippleT: performance.now() / 1000 }),
   go(x, z, yaw, shift = 0) {

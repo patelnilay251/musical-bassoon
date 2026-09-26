@@ -7,15 +7,15 @@ import { KIND, PATTERN, paintShade } from '../render.js';
 import { hex, mat4LookAt, mat4Mul, normalize, cross, DEG } from '../math.js';
 import { skyState, SEA_LEVEL } from '../sky.js';
 import { lookOf } from '../looks.js';
-import { CAST, DISTANT } from '../mesh.js';
+import { CAST, DOUBLE, DISTANT } from '../mesh.js';
 
 // One vertex: position (3 floats), normal (3), uv (2), then two words:
 // material | flags << 16, and the object id.
 export const VERTEX_BYTES = 40;
 export const MATERIAL_FLOATS = 20;
 export const LIGHT_FLOATS = 8;
-export const FRAME_FLOATS = 160;
-export const POOL_FLOATS = 48;
+export const FRAME_FLOATS = 164;
+export const POOL_FLOATS = 80;
 
 // Big triangles (the highway and its painted lines run for kilometers) are
 // cut into pieces at most MAX_EDGE long where they pass through `zone`,
@@ -69,13 +69,20 @@ export function packMesh(mesh, zone = null) {
     const T = [0, 1, 2].map((k) => [mesh.uv[t * 6 + k * 2], mesh.uv[t * 6 + k * 2 + 1]]);
     tri(P, N, T, mesh.mat[t] | (mesh.flags[t] << 16), mesh.obj[t]);
   }
+  // One-sided triangles first, then two-sided ones: the painter culls the
+  // back faces of all but the two-sided (raster.js), and so will the GPU.
   const tris = out.length / 5;
+  const order = [];
+  for (let t = 0; t < tris; t++) if (!((out[t * 5 + 3] >>> 16) & DOUBLE)) order.push(t);
+  const single = order.length;
+  for (let t = 0; t < tris; t++) if ((out[t * 5 + 3] >>> 16) & DOUBLE) order.push(t);
   const n = tris * 3;
   const buf = new ArrayBuffer(n * VERTEX_BYTES);
   const f = new Float32Array(buf);
   const u = new Uint32Array(buf);
   for (let t = 0; t < tris; t++) {
-    const [P, N, T, ids, obj] = out.slice(t * 5, t * 5 + 5);
+    const src = order[t];
+    const [P, N, T, ids, obj] = out.slice(src * 5, src * 5 + 5);
     for (let k = 0; k < 3; k++) {
       const o = (t * 3 + k) * 10;
       f[o] = P[k][0];
@@ -90,7 +97,7 @@ export function packMesh(mesh, zone = null) {
       u[o + 9] = obj;
     }
   }
-  return { data: buf, count: n };
+  return { data: buf, count: n, single: single * 3 };
 }
 
 // Materials, with the power the world gives each lamp and sign, and the
@@ -170,19 +177,35 @@ export function packSky(sky = {}) {
   return f;
 }
 
-export function packPool(pool) {
+// A place's water: its pool, if it has one, and its open water (a harbor,
+// the sea off the beach), if it has that.
+export function packPool(pool, water = null) {
   const f = new Float32Array(POOL_FLOATS);
-  if (!pool) return f;
-  f.set([pool.x0, pool.x1, pool.z0, pool.z1], 0);
-  f.set([pool.waterY, pool.floorY, Math.min(4, pool.waves.length), 1], 4);
-  f.set(pool.tile, 8);
-  f.set(pool.lane, 12);
-  f.set(pool.water, 16);
-  f.set(pool.glow, 20);
-  pool.waves.slice(0, 4).forEach((w, i) => {
-    f.set([w.kx, w.kz, w.w, w.p], 24 + i * 4);
-    f[40 + i] = w.a;
-  });
+  if (pool) {
+    f.set([pool.x0, pool.x1, pool.z0, pool.z1], 0);
+    f.set([pool.waterY, pool.floorY, Math.min(4, pool.waves.length)], 4);
+    f.set(pool.tile, 8);
+    f.set(pool.lane, 12);
+    f.set(pool.water, 16);
+    f.set(pool.glow, 20);
+    pool.waves.slice(0, 4).forEach((w, i) => {
+      f.set([w.kx, w.kz, w.w, w.p], 24 + i * 4);
+      f[40 + i] = w.a;
+    });
+  }
+  if (water) {
+    f[7] = Math.min(4, water.waves.length);
+    water.waves.slice(0, 4).forEach((w, i) => {
+      f.set([w.kx, w.kz, w.w, w.p], 44 + i * 4);
+      f[60 + i] = w.a;
+    });
+    f.set([...water.near, water.falloff ?? 160], 64);
+    f.set([...water.far, water.shallow ? 1 : 0], 68);
+    if (water.shallow) {
+      f.set([water.shallow.a[0], water.shallow.a[1], water.shallow.d, water.shallow.w], 72);
+      f.set([...water.shallow.color, 0], 76);
+    }
+  }
   return f;
 }
 
@@ -279,7 +302,7 @@ export function shadowMatrix(S, box) {
  * cam = { eye, target, fovY, shift }, W x H the target, S = skyState(),
  * shadow = shadowMatrix() and its map size, and a few switches.
  */
-export function packFrame({ cam, W, H, S, look, shadow, shadowSize, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle }) {
+export function packFrame({ cam, W, H, S, look, shadow, shadowSize, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle, mirrorY = 0, reflRect = [0, 0, 1, 1] }) {
   const L = lookOf(look);
   const f = new Float32Array(FRAME_FLOATS);
   const eye = cam.eye;
@@ -321,8 +344,10 @@ export function packFrame({ cam, W, H, S, look, shadow, shadowSize, rippleT, sta
   f.set([L.frond.warmTip, L.pool.flecks ? 1 : 0, hasPool ? 1 : 0, reflection ? 1 : 0], 152);
   if (shadow) {
     // Renderer.shadow: a nudge of 1.6 texels along the normal, 0.015 m toward the light.
-    f.set([shadow.texel / shadowSize, S.keyOn ? 1 : 0, 0.015 * shadow.depthScale, 0], 156);
+    f.set([shadow.texel / shadowSize, S.keyOn ? 1 : 0, 0.015 * shadow.depthScale], 156);
   }
+  f[159] = mirrorY;
+  f.set(reflRect, 160);
   return f;
 }
 

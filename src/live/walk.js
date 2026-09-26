@@ -1,27 +1,36 @@
 // Walking through a place: where the ground is and what stands in the way,
 // read from the place's own triangles into a grid of small cells. Each
-// cell keeps the heights of the floors in it (faces that look up) and the
-// spans of height its other faces fill. A walker can step up a curb or a
-// stair, not through a wall, and never onto water.
+// cell keeps the heights of the floors in it (faces that look up), the
+// spans of height its other faces fill, and the top of any water. A walker
+// can step up a curb or a stair, not through a wall, and never stands
+// below the water.
 
 import { KIND } from '../render.js';
-import { DISTANT } from '../mesh.js';
+import { DISTANT, DOUBLE } from '../mesh.js';
 
-const FLOORS = 4; // floor heights kept per cell
-const SPANS = 4; // blocked height spans kept per cell
+const FLOORS = 3; // floor heights kept per cell
+const SPANS = 3; // blocked height spans kept per cell
 const TOP = 9; // nothing above this height matters to a walker
+const MAX_CELLS = 1.2e6; // big places get coarser cells
 
 export const WALKER = { radius: 0.3, height: 1.7, eye: 1.6, step: 0.36 };
 
-/** Grid over the place's shadow box (plus `margin`), cells `cell` meters. */
-export function buildWalk(world, { cell = 0.25, margin = 30 } = {}) {
+/**
+ * Grid over the place's shadow box (plus `margin`), cells about `cell`
+ * meters (coarser if the place is big).
+ */
+export function buildWalk(world, { cell: want = 0.25, margin = 12 } = {}) {
   const box = world.shadowBox;
   const x0 = box.min[0] - margin;
   const z0 = box.min[2] - margin;
-  const nx = Math.ceil((box.max[0] + margin - x0) / cell);
-  const nz = Math.ceil((box.max[2] + margin - z0) / cell);
+  const w = box.max[0] + margin - x0;
+  const d = box.max[2] + margin - z0;
+  const cell = Math.max(want, Math.sqrt((w * d) / MAX_CELLS));
+  const nx = Math.ceil(w / cell);
+  const nz = Math.ceil(d / cell);
   const floors = new Float32Array(nx * nz * FLOORS).fill(NaN);
   const spans = new Float32Array(nx * nz * SPANS * 2).fill(NaN);
+  const wet = new Float32Array(nx * nz).fill(NaN);
   const mesh = world.mesh;
   const kinds = world.materials.map((m) => KIND[m.kind ?? 'diffuse']);
 
@@ -68,9 +77,9 @@ export function buildWalk(world, { cell = 0.25, margin = 30 } = {}) {
     let best = 0;
     let gap = Infinity;
     for (let k = 0; k < SPANS; k++) {
-      const d = Math.max(0, spans[o + k * 2] - b, a - spans[o + k * 2 + 1]);
-      if (d < gap) {
-        gap = d;
+      const g = Math.max(0, spans[o + k * 2] - b, a - spans[o + k * 2 + 1]);
+      if (g < gap) {
+        gap = g;
         best = k;
       }
     }
@@ -78,52 +87,104 @@ export function buildWalk(world, { cell = 0.25, margin = 30 } = {}) {
     spans[o + best * 2 + 1] = Math.max(spans[o + best * 2 + 1], b);
   };
 
-  const poly = [];
+  const P = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
   const clipped = [];
   for (let t = 0; t < mesh.count; t++) {
     if (mesh.flags[t] & DISTANT) continue;
     const p = mesh.pos;
     const o = t * 9;
-    const ymin = Math.min(p[o + 1], p[o + 4], p[o + 7]);
+    for (let k = 0; k < 3; k++) {
+      P[k][0] = p[o + k * 3];
+      P[k][1] = p[o + k * 3 + 1];
+      P[k][2] = p[o + k * 3 + 2];
+    }
+    const ymin = Math.min(P[0][1], P[1][1], P[2][1]);
+    const ymax = Math.max(P[0][1], P[1][1], P[2][1]);
     if (ymin > TOP) continue;
     const kind = kinds[mesh.mat[t]];
-    const xa = Math.min(p[o], p[o + 3], p[o + 6]);
-    const xb = Math.max(p[o], p[o + 3], p[o + 6]);
-    const za = Math.min(p[o + 2], p[o + 5], p[o + 8]);
-    const zb = Math.max(p[o + 2], p[o + 5], p[o + 8]);
-    const i0 = Math.max(0, Math.floor((xa - x0) / cell));
-    const i1 = Math.min(nx - 1, Math.floor((xb - x0) / cell));
-    const j0 = Math.max(0, Math.floor((za - z0) / cell));
-    const j1 = Math.min(nz - 1, Math.floor((zb - z0) / cell));
-    if (i0 > i1 || j0 > j1) continue;
-    const ny = mesh.fn[t * 3 + 1];
+    const fx = mesh.fn[t * 3];
+    const fy = mesh.fn[t * 3 + 1];
+    const fz = mesh.fn[t * 3 + 2];
+    const fd = mesh.fd[t];
     const water = kind === KIND.water || kind === KIND.harbor;
-    const floor = !water && ny > 0.7;
+    // A two-sided plank can be wound either way up.
+    const floor = !water && (fy > 0.7 || (mesh.flags[t] & DOUBLE && fy < -0.7));
+    const upright = Math.abs(fy) < 0.05;
+    // Floors and water take the cells they cover, not the ones they only
+    // touch along an edge; walls take both.
+    const E = upright ? 0 : 1e-3;
+    const za = Math.min(P[0][2], P[1][2], P[2][2]);
+    const zb = Math.max(P[0][2], P[1][2], P[2][2]);
+    const j0 = Math.max(0, Math.floor((za + E - z0) / cell));
+    const j1 = Math.min(nz - 1, Math.floor((zb - E - z0) / cell));
+    // Height of the triangle's plane at (x, z), held to its own heights.
+    const plane = (x, z) => Math.min(ymax, Math.max(ymin, (fd - fx * x - fz * z) / fy));
     for (let j = j0; j <= j1; j++) {
+      // The triangle's reach in x across this row of cells.
+      const ra = z0 + j * cell;
+      const rb = ra + cell;
+      let xa = Infinity;
+      let xb = -Infinity;
+      for (let k = 0; k < 3; k++) {
+        const a = P[k];
+        const b = P[(k + 1) % 3];
+        if (a[2] >= ra && a[2] <= rb) {
+          xa = Math.min(xa, a[0]);
+          xb = Math.max(xb, a[0]);
+        }
+        for (const zz of [ra, rb]) {
+          if ((a[2] - zz) * (b[2] - zz) < 0) {
+            const x = a[0] + ((b[0] - a[0]) * (zz - a[2])) / (b[2] - a[2]);
+            xa = Math.min(xa, x);
+            xb = Math.max(xb, x);
+          }
+        }
+      }
+      xa += E;
+      xb -= E;
+      if (xa > xb) continue;
+      const i0 = Math.max(0, Math.floor((xa - x0) / cell));
+      const i1 = Math.min(nx - 1, Math.floor((xb - x0) / cell));
       for (let i = i0; i <= i1; i++) {
         const c = j * nx + i;
-        // The part of the triangle over this cell.
-        poly.length = 0;
-        for (let k = 0; k < 3; k++) poly.push([p[o + k * 3], p[o + k * 3 + 1], p[o + k * 3 + 2]]);
-        const cx0 = x0 + i * cell;
-        const cz0 = z0 + j * cell;
-        const part = clipRect(poly, cx0, cz0, cx0 + cell, cz0 + cell, clipped);
-        if (part.length === 0) continue;
-        let lo = Infinity;
-        let hi = -Infinity;
-        for (const q of part) {
-          lo = Math.min(lo, q[1]);
-          hi = Math.max(hi, q[1]);
+        const cx = x0 + (i + 0.5) * cell;
+        const cz = z0 + (j + 0.5) * cell;
+        if (water) {
+          const y = plane(cx, cz);
+          if (!(wet[c] >= y)) wet[c] = y;
+          continue;
         }
-        if (water) addSpan(c, lo - 2, hi + 2);
-        else if (floor) {
-          addFloor(c, hi);
-          addSpan(c, lo - 0.01, hi - 0.005);
-        } else addSpan(c, lo, hi);
+        if (upright) {
+          // A wall: the heights it fills over this cell, exactly.
+          const part = clipRect(P, cx - cell / 2, cz - cell / 2, cx + cell / 2, cz + cell / 2, clipped);
+          if (part.length === 0) continue;
+          let lo = Infinity;
+          let hi = -Infinity;
+          for (const q of part) {
+            lo = Math.min(lo, q[1]);
+            hi = Math.max(hi, q[1]);
+          }
+          addSpan(c, lo, hi);
+          continue;
+        }
+        if (floor) {
+          const y = plane(cx, cz);
+          addFloor(c, y);
+          addSpan(c, y - 0.01, y - 0.005);
+          continue;
+        }
+        // A slope or a ceiling: the heights its plane takes over the cell.
+        const h = cell / 2;
+        const ys = [plane(cx - h, cz - h), plane(cx + h, cz - h), plane(cx - h, cz + h), plane(cx + h, cz + h)];
+        addSpan(c, Math.min(...ys), Math.max(...ys));
       }
     }
   }
-  return { x0, z0, nx, nz, cell, floors, spans };
+  return { x0, z0, nx, nz, cell, floors, spans, wet };
 }
 
 // Sutherland-Hodgman against an axis-aligned rectangle in x and z; the
@@ -156,34 +217,49 @@ function clipRect(poly, xa, za, xb, zb, scratch) {
   return cur;
 }
 
-// The highest floor under (x, z) no higher than `below`, or NaN.
+// The highest floor under (x, z) no higher than `below`, or NaN. A floor
+// under water does not count: the walker stays dry.
 export function floorAt(W, x, z, below) {
   const i = Math.floor((x - W.x0) / W.cell);
   const j = Math.floor((z - W.z0) / W.cell);
   if (i < 0 || j < 0 || i >= W.nx || j >= W.nz) return NaN;
-  const o = (j * W.nx + i) * FLOORS;
+  return floorIn(W, j * W.nx + i, below);
+}
+
+function floorIn(W, c, below) {
+  const o = c * FLOORS;
   let best = NaN;
   for (let k = 0; k < FLOORS; k++) {
     const v = W.floors[o + k];
     if (v <= below && !(v <= best)) best = v;
   }
-  return best;
+  return best < W.wet[c] ? NaN : best;
 }
 
-// Does anything fill heights (a, b) within `r` of (x, z)?
-export function blocked(W, x, z, a, b, r) {
+/**
+ * Does anything stand in the body of a walker whose feet are at `f` over
+ * (x, z)? Each cell the walker's circle touches is judged from its own
+ * floor, where that is higher: what rises less than a step above the
+ * ground it stands on is stepped over, even on a slope.
+ */
+export function blocked(W, x, z, f, w = WALKER) {
+  const r = w.radius;
   const i0 = Math.floor((x - r - W.x0) / W.cell);
   const i1 = Math.floor((x + r - W.x0) / W.cell);
   const j0 = Math.floor((z - r - W.z0) / W.cell);
   const j1 = Math.floor((z + r - W.z0) / W.cell);
   if (i0 < 0 || j0 < 0 || i1 >= W.nx || j1 >= W.nz) return true;
+  const b = f + w.height;
   for (let j = j0; j <= j1; j++) {
     for (let i = i0; i <= i1; i++) {
       // Only the cells that touch the walker's circle.
       const cx = Math.max(W.x0 + i * W.cell, Math.min(x, W.x0 + (i + 1) * W.cell));
       const cz = Math.max(W.z0 + j * W.cell, Math.min(z, W.z0 + (j + 1) * W.cell));
       if ((cx - x) ** 2 + (cz - z) ** 2 > r * r) continue;
-      const o = (j * W.nx + i) * SPANS * 2;
+      const c = j * W.nx + i;
+      const g = floorIn(W, c, f + w.step);
+      const a = (g > f ? g : f) + w.step;
+      const o = c * SPANS * 2;
       for (let k = 0; k < SPANS; k++) {
         const s0 = W.spans[o + k * 2];
         if (Number.isNaN(s0)) continue;
@@ -206,7 +282,7 @@ export function walk(W, pos, dx, dz, w = WALKER) {
     if (Number.isNaN(f) || f < y - 3) return null;
     // Anything lower than a step can be stepped over (or onto): only what
     // fills the walker's body above that stops them.
-    if (blocked(W, nx, nz, f + w.step, f + w.height, w.radius)) return null;
+    if (blocked(W, nx, nz, f, w)) return null;
     return { x: nx, y: f, z: nz };
   };
   // Small substeps so a fast walker cannot pass through a thin wall.

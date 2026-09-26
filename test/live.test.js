@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPlace } from '../src/scenes/index.js';
+import { buildPlace, PLACES, ORDER } from '../src/scenes/index.js';
 import { propsAt } from '../src/visitor.js';
 import { Renderer, KIND } from '../src/render.js';
 import { skyState } from '../src/sky.js';
@@ -114,4 +114,43 @@ test('a walker can climb the motel stairs, but not walk through walls or into th
   for (let i = 0; i < 40; i++) r = walk(W, r, 0.25, 0);
   assert.ok(r.x < pool.x0, 'walked into the pool');
   assert.ok(Number.isNaN(floorAt(W, 1e6, 0, 10)), 'off the map there is no floor');
+});
+
+test('from the end of a dock a walker goes up the gangway to the quay, and never into the harbor', () => {
+  const marina = buildPlace('marina', propsAt('marina', 16.2), 'cobalt');
+  const W = buildWalk(marina);
+  const v = marina.views[PLACES.marina.START];
+  let p = standAt(W, v.eye[0], v.eye[2], v.eye[1]);
+  assert.ok(p && Math.abs(p.y - 0.45) < 0.01, 'the walk starts on the dock');
+  for (let i = 0; i < 420; i++) p = walk(W, p, 0.25, 0);
+  assert.ok(Math.abs(p.y - 1.4) < 0.01 && p.x > 0.6, `up on the quay (at ${p.x.toFixed(2)}, ${p.y.toFixed(2)})`);
+  // Sideways off the dock, between two fingers: stopped at the edge.
+  let q = standAt(W, -50, -30, 1);
+  for (let i = 0; i < 40; i++) q = walk(W, q, 0, 0.25);
+  assert.ok(q.z < -28.8 + W.cell, `walked off the dock (z ${q.z.toFixed(2)})`);
+});
+
+test('every walk starts somewhere a walker can leave', () => {
+  for (const id of ORDER) {
+    const world = buildPlace(id, propsAt(id, 16.2), 'cobalt');
+    const W = buildWalk(world);
+    const v = world.views[PLACES[id].START ?? PLACES[id].VIEWS[0]];
+    const start = standAt(W, v.eye[0], v.eye[2], v.eye[1]);
+    assert.ok(start, `${id}: nowhere to stand`);
+    // Flood out from the start, a cell at a time, until there is plenty.
+    const key = (p) => `${Math.floor((p.x - W.x0) / W.cell)},${Math.floor((p.z - W.z0) / W.cell)},${Math.round(p.y * 4)}`;
+    const seen = new Set([key(start)]);
+    const queue = [start];
+    while (queue.length && seen.size < 4000) {
+      const p = queue.shift();
+      for (const [dx, dz] of [[W.cell, 0], [-W.cell, 0], [0, W.cell], [0, -W.cell]]) {
+        const q = walk(W, p, dx, dz);
+        if (!seen.has(key(q))) {
+          seen.add(key(q));
+          queue.push(q);
+        }
+      }
+    }
+    assert.ok(seen.size >= 4000, `${id}: only ${seen.size} cells to walk`);
+  }
 });
