@@ -166,7 +166,7 @@ export function packPanes(world) {
 // The grain a walker sees at arm's length and a painting never shows
 // (wgsl.js detail()), by material: live only, and faded out long before
 // the distances the painted views are taken from.
-export const DETAIL = { none: 0, stucco: 1, asphalt: 2, concrete: 3, bark: 4, sand: 5, wood: 6, grass: 7 };
+export const DETAIL = { none: 0, stucco: 1, asphalt: 2, concrete: 3, bark: 4, sand: 5, wood: 6, grass: 7, leaves: 8 };
 const DETAIL_OF = {
   stucco: 'stucco',
   wall: 'stucco',
@@ -195,6 +195,9 @@ const DETAIL_OF = {
   lawn: 'grass',
   lawnTown: 'grass',
   field: 'grass',
+  hedge: 'leaves',
+  bush: 'leaves',
+  shrub: 'leaves',
 };
 
 export function packMaterials(world) {

@@ -542,6 +542,7 @@ const D_BARK = 4u;
 const D_SAND = 5u;
 const D_WOOD = 6u;
 const D_GRASS = 7u;
+const D_LEAVES = 8u;
 
 // A cheap hash and value noise (nothing here has to match the painter's).
 fn hashf(q: vec2f) -> f32 {
@@ -557,6 +558,15 @@ fn vn(q: vec2f) -> f32 {
   let a = mix(hashf(i), hashf(i + vec2f(1.0, 0.0)), u.x);
   let b = mix(hashf(i + vec2f(0.0, 1.0)), hashf(i + vec2f(1.0, 1.0)), u.x);
   return mix(a, b, u.y);
+}
+
+// Value noise in three dimensions, for round things no one plane fits:
+// two slices of the flat noise, blended through the height.
+fn vn3(p: vec3f) -> f32 {
+  let k = floor(p.y);
+  let f = p.y - k;
+  let u = f * f * (3.0 - 2.0 * f);
+  return mix(vn(p.xz + vec2f(k * 17.13, k * 3.71)), vn(p.xz + vec2f((k + 1.0) * 17.13, (k + 1.0) * 3.71)), u);
 }
 
 // One octave, wavelength lam meters, amplitude a, for a pixel foot wide.
@@ -635,6 +645,12 @@ fn detail(m: u32, p: vec3f, n: vec3f, uv: vec2f, dist: f32, foot: f32) -> f32 {
     f = 0.08 * w * (vn(vec2f(p.x / 0.016, p.z / 0.8)) - 0.5) + grain(q, 0.4, 0.03, foot);
   } else if (D == D_GRASS) {
     f = grain(q, 0.6, 0.05, foot) + grain(q + 4.4, 0.08, 0.07, foot) + grain(q + 1.9, 0.022, 0.07, foot);
+  } else if (D == D_LEAVES) {
+    // Clusters of leaves and the dark between them, all the way round.
+    let w1 = 1.0 - ss(0.008, 0.025, foot);
+    let w2 = 1.0 - ss(0.003, 0.008, foot);
+    let v = vn3(p / 0.07);
+    f = 0.2 * w1 * (v - 0.5) - 0.12 * w1 * (1.0 - ss(0.2, 0.36, v)) + 0.1 * w2 * (vn3(p / 0.022 + 5.0) - 0.5);
   }
   return 1.0 + f * near;
 }
@@ -1036,6 +1052,9 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       let u = uv.x;
       let f = F.frond.x + F.frond.y * u + F.frond.z * uv.y;
       col *= vec3f(f * (F.frond.w + F.frond2.x * u), f, f * (1.02 - 0.08 * u));
+    }
+    if ((flags & DISTANT) == 0u) {
+      col *= detail(m, p, n, uv, dist, dist * F.eye.w * 1.5);
     }
   } else if (kind == K_GLASS) {
     col = shadeGlass(m, obj, p, n, d);

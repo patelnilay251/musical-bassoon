@@ -104,7 +104,8 @@ A painting never has to show what a walker sees at arm's length, so the live tow
   - fibers up the palm trunks;
   - sand;
   - wood grain along the boards;
-  - blades of grass.
+  - blades of grass;
+  - clusters of leaves on the hedges and bushes, in a noise that runs all the way round.
 
   Every octave fades before a pixel is a third of its size, so nothing shimmers.
 - **Rooms behind the glass.** Interior mapping: each pane opens onto a room that is not there. The ray from the eye goes on past the glass to the room's back wall, a side wall, the floor or the ceiling, and meets what stands in the room.
