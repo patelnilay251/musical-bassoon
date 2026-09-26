@@ -4,7 +4,7 @@ import { buildPlace, PLACES, ORDER } from '../src/scenes/index.js';
 import { propsAt } from '../src/visitor.js';
 import { Renderer, KIND } from '../src/render.js';
 import { skyState } from '../src/sky.js';
-import { packMesh, packMaterials, packShades, packFrame, shadowMatrix, VERTEX_BYTES, MATERIAL_FLOATS, FRAME_FLOATS } from '../src/live/pack.js';
+import { packMesh, packMaterials, packShades, packFrame, packPanes, shadowMatrix, nearShadowMatrix, DETAIL, PANE_FLOATS, VERTEX_BYTES, MATERIAL_FLOATS, FRAME_FLOATS } from '../src/live/pack.js';
 import { buildWalk, walk, standAt, floorAt, WALKER } from '../src/live/walk.js';
 import { SCENE_WGSL, POST_WGSL } from '../src/live/wgsl.js';
 
@@ -59,6 +59,73 @@ test('materials go to the GPU with their kinds, patterns, power and road lanes',
   assert.deepEqual(Array.from(lanes.subarray(u[road * MATERIAL_FLOATS + 18], u[road * MATERIAL_FLOATS + 18] + 2)), motel.materials[road].lanes.centers.map(Math.fround));
   const visitor = motel.materials.findIndex((m) => m.name === 'visitorGlass');
   assert.equal(f[visitor * MATERIAL_FLOATS + 12], motel.emitScale.visitorGlass);
+  // Close-up grain: stucco on the walls, stones in the tar, none on glass.
+  const grainOf = (name) => u[motel.materials.findIndex((m) => m.name === name) * MATERIAL_FLOATS + 20];
+  assert.equal(grainOf('wall'), DETAIL.stucco);
+  assert.equal(grainOf('road'), DETAIL.asphalt);
+  assert.equal(grainOf('trunk'), DETAIL.bark);
+  assert.equal(grainOf('roomGlass'), DETAIL.none);
+});
+
+test('every pane a walker can look into is upright glass of a building, with its own extent', () => {
+  const boulevard = buildPlace('boulevard', propsAt('boulevard', 16.2), 'cobalt');
+  for (const world of [motel, boulevard]) {
+    const { data, paneOf, count } = packPanes(world);
+    assert.ok(count > 0);
+    assert.equal(data.length, count * PANE_FLOATS);
+    const mesh = world.mesh;
+    for (let t = 0; t < mesh.count; t++) {
+      const name = world.materials[mesh.mat[t]].name;
+      if (name === 'carGlass' || name === 'visitorGlass') assert.equal(paneOf[t], 0, 'a car is not a room');
+      if (!paneOf[t]) continue;
+      assert.ok(name === 'glass' || name === 'roomGlass');
+      // The triangle lies inside its pane, along the face and up it.
+      const o = (paneOf[t] - 1) * PANE_FLOATS;
+      const [a0, a1, y0, y1, nx, nz] = data.subarray(o, o + 6);
+      for (let k = 0; k < 3; k++) {
+        const x = mesh.pos[t * 9 + k * 3];
+        const y = mesh.pos[t * 9 + k * 3 + 1];
+        const z = mesh.pos[t * 9 + k * 3 + 2];
+        const a = -nz * x + nx * z;
+        assert.ok(a >= a0 - 1e-3 && a <= a1 + 1e-3 && y >= y0 - 1e-3 && y <= y1 + 1e-3);
+      }
+    }
+    // The pane rides in the top half of the object id; the id itself is kept.
+    const { data: verts } = packMesh(world.mesh, world.shadowBox, paneOf);
+    const u = new Uint32Array(verts);
+    const ids = new Set(Array.from({ length: u.length / 10 }, (_, v) => u[v * 10 + 9] & 0xffff));
+    assert.deepEqual([...ids].sort((a, b) => a - b), [...new Set(world.mesh.obj)].sort((a, b) => a - b));
+  }
+  // Rooms, shops and lounges.
+  const style = (world, name) => {
+    const { data, paneOf } = packPanes(world);
+    const t = world.mesh.mat.findIndex((m, i) => world.materials[m].name === name && paneOf[i]);
+    return data[(paneOf[t] - 1) * PANE_FLOATS + 6];
+  };
+  assert.equal(style(motel, 'roomGlass'), 0);
+  assert.equal(style(boulevard, 'glass'), 1);
+  assert.equal(style(motel, 'glass'), 2);
+});
+
+test('the shadow map that follows the walker sees around them, and holds still to the texel', () => {
+  const S = skyState(16.2, motel.sky, 'cobalt');
+  const clip = (m, p) => [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+  const at = [-10, 0, -5];
+  const near = nearShadowMatrix(S, motel.shadowBox, at, 40, 4096);
+  const c = clip(near.m, at);
+  assert.ok(Math.abs(c[0]) < 0.01 && Math.abs(c[1]) < 0.01 && c[2] > 0 && c[2] < 1, 'centered on the walker');
+  // Depth runs the same way as the whole-box map's, over every caster.
+  const far = shadowMatrix(S, motel.shadowBox);
+  assert.ok(Math.abs(near.depthScale - far.depthScale) < 1e-12);
+  const top = clip(near.m, [-10, 20, -5]);
+  assert.ok(top[2] >= 0 && top[2] < c[2], 'a palm top is nearer the sun than its foot');
+  // Moving a hair does not shift the map by less than a texel.
+  const a = nearShadowMatrix(S, motel.shadowBox, [-10.001, 0, -5], 40, 4096).m;
+  const texel = 2 / 4096;
+  for (const k of [12, 13]) {
+    const shift = (a[k] - near.m[k]) / texel;
+    assert.ok(Math.abs(shift - Math.round(shift)) < 1e-6);
+  }
 });
 
 test("the live painter mixes shade with the painter's own numbers", () => {
@@ -128,6 +195,26 @@ test('from the end of a dock a walker goes up the gangway to the quay, and never
   let q = standAt(W, -50, -30, 1);
   for (let i = 0; i < 40; i++) q = walk(W, q, 0, 0.25);
   assert.ok(q.z < -28.8 + W.cell, `walked off the dock (z ${q.z.toFixed(2)})`);
+});
+
+test('a walker put down inside a railing steps out of it, and never stands on leaves', () => {
+  const house = buildPlace('house', propsAt('house', 16.2), 'cobalt');
+  const W = buildWalk(house);
+  // Two of the house's pictures are taken from right against a railing.
+  for (const view of ['hero', 'terrace']) {
+    const v = house.views[view];
+    const p = standAt(W, v.eye[0], v.eye[2], v.eye[1]);
+    let far = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let q = p;
+      for (let i = 0; i < 20; i++) q = walk(W, q, dx * 0.25, dz * 0.25);
+      far = Math.max(far, Math.hypot(q.x - p.x, q.z - p.z));
+    }
+    assert.ok(far > 2, `stuck at the ${view} picture`);
+  }
+  // Under a palm's fronds, the lawn is still the floor.
+  const v = house.views.drive;
+  assert.equal(standAt(W, v.eye[0], v.eye[2], v.eye[1]).y, 0);
 });
 
 test('every walk starts somewhere a walker can leave', () => {

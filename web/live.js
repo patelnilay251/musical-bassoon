@@ -2,9 +2,10 @@
 // you move, by the same rules as the painted town (src/live/). Click to
 // walk: W A S D or the arrows, the mouse to look, shift to run. [ and ] or
 // the wheel change the hour, space lets the day pass, L turns to the other
-// look, 1 to 5 (or the names at the top) go to another place. The camera stays level the way the paintings do: looking up or
-// down slides the frame, like the rising front of a view camera, so
-// verticals stay vertical.
+// look, 1 to 5 (or the names at the top) go to another place. The camera
+// stays level the way the paintings do: looking up or down slides the
+// frame, like the rising front of a view camera, so verticals stay
+// vertical.
 
 import { buildPlace, PLACES, ORDER } from '../src/scenes/index.js';
 import { propsAt, clock, whereIs } from '../src/visitor.js';
@@ -344,11 +345,12 @@ canvas.addEventListener('pointercancel', lift);
 window.__live = {
   state,
   place: () => world,
+  renderer: () => live,
   enter,
   ready: () => Boolean(live && world),
   snapshot: () => live.snapshot(camera(), { rippleT: performance.now() / 1000 }),
-  go(x, z, yaw, shift = 0) {
-    state.pos = standAt(grid, x, z) ?? state.pos;
+  go(x, z, yaw, shift = 0, below = 50) {
+    state.pos = standAt(grid, x, z, below) ?? state.pos;
     state.yaw = yaw * DEG;
     state.shift = shift;
   },

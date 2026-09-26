@@ -4,13 +4,20 @@
 // the scene with its sky and sea, then the glow and the look's finish.
 
 import { SCENE_WGSL, POST_WGSL } from './wgsl.js';
-import { packMesh, packMaterials, packLights, packSky, packPool, packShades, packFrame, shadowMatrix, mirrorCamera, viewProj, VERTEX_BYTES, FRAME_FLOATS } from './pack.js';
+import { packMesh, packMaterials, packLights, packSky, packPool, packShades, packFrame, packPanes, shadowMatrix, nearShadowMatrix, mirrorCamera, viewProj, VERTEX_BYTES, FRAME_FLOATS } from './pack.js';
 import { skyState } from '../sky.js';
 import { lookOf } from '../looks.js';
 
 const HDR = 'rgba16float';
 const DEPTH = 'depth32float';
 const SAMPLES = 4;
+// The tight shadow map that follows the walker: 40 m across, a centimeter
+// a texel, centered a little ahead of the eye and moved when the walker
+// has gone five meters.
+const NEAR_SIZE = 4096;
+const NEAR_SPAN = 40;
+const NEAR_AHEAD = 14;
+const NEAR_MOVE = 5;
 const U = GPUBufferUsage;
 const T = GPUTextureUsage;
 const S = GPUShaderStage;
@@ -66,6 +73,8 @@ export class LiveRenderer {
         { binding: 8, visibility: S.FRAGMENT, sampler: { type: 'comparison' } },
         { binding: 9, visibility: S.FRAGMENT, texture: { sampleType: 'float' } },
         { binding: 10, visibility: S.FRAGMENT, sampler: { type: 'filtering' } },
+        { binding: 11, visibility: S.FRAGMENT, texture: { sampleType: 'depth' } },
+        { binding: 12, visibility: S.FRAGMENT, buffer: { type: 'read-only-storage' } },
       ],
     });
     const sceneLayout = device.createPipelineLayout({ bindGroupLayouts: [this.sceneLayout] });
@@ -136,11 +145,15 @@ export class LiveRenderer {
 
     this.frameMain = device.createBuffer({ size: FRAME_FLOATS * 4, usage: U.UNIFORM | U.COPY_DST });
     this.frameMirror = device.createBuffer({ size: FRAME_FLOATS * 4, usage: U.UNIFORM | U.COPY_DST });
+    this.frameNear = device.createBuffer({ size: FRAME_FLOATS * 4, usage: U.UNIFORM | U.COPY_DST });
     this.postMain = device.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     this.postH = device.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     this.postV = device.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
 
     this.shadowTex = device.createTexture({ size: [this.shadowSize, this.shadowSize], format: DEPTH, usage: T.RENDER_ATTACHMENT | T.TEXTURE_BINDING });
+    this.nearTex = device.createTexture({ size: [NEAR_SIZE, NEAR_SIZE], format: DEPTH, usage: T.RENDER_ATTACHMENT | T.TEXTURE_BINDING });
+    this.near = null; // its matrix, and the point it is centered on
+    this.nearAt = null;
     this.dummyDepth = device.createTexture({ size: [1, 1], format: DEPTH, usage: T.RENDER_ATTACHMENT | T.TEXTURE_BINDING });
     this.dummyColor = device.createTexture({ size: [1, 1], format: HDR, usage: T.TEXTURE_BINDING | T.RENDER_ATTACHMENT });
     this.shadowSampler = device.createSampler({ compare: 'less-equal', magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -158,7 +171,8 @@ export class LiveRenderer {
     for (const b of this.worldBuffers ?? []) b.destroy();
     this.world = world;
     this.look = lookOf(world.look);
-    const mesh = packMesh(world.mesh, world.shadowBox);
+    const panes = packPanes(world);
+    const mesh = packMesh(world.mesh, world.shadowBox, panes.paneOf);
     const mats = packMaterials(world);
     const lights = packLights(world);
     this.vertexCount = mesh.count;
@@ -171,7 +185,8 @@ export class LiveRenderer {
     this.skyBuf = this.buffer(packSky(world.sky), U.STORAGE);
     this.poolBuf = this.buffer(packPool(world.pool, world.water), U.UNIFORM);
     this.shades = this.device.createBuffer({ size: Math.max(1, world.materials.length) * 48, usage: U.STORAGE | U.COPY_DST });
-    this.worldBuffers = [this.vertices, this.mats, this.lanes, this.lightBuf, this.skyBuf, this.poolBuf, this.shades];
+    this.paneBuf = this.buffer(panes.data, U.STORAGE);
+    this.worldBuffers = [this.vertices, this.mats, this.lanes, this.lightBuf, this.skyBuf, this.poolBuf, this.shades, this.paneBuf];
     // What the world mirrors, as Renderer does: open water (the whole
     // frame) or a pool (its rectangle).
     this.mirror = world.mirror || (world.pool ? { y: world.pool.waterY, rect: world.pool } : null);
@@ -187,6 +202,7 @@ export class LiveRenderer {
     this.device.queue.writeBuffer(this.shades, 0, packShades(this.world, this.S));
     this.shadow = this.S.keyOn ? shadowMatrix(this.S, this.world.shadowBox) : null;
     this.shadowDirty = true;
+    this.nearAt = null;
   }
 
   /** Paint a frame into a texture and read it back as RGBA bytes. */
@@ -301,7 +317,7 @@ export class LiveRenderer {
 
   makeBindGroups() {
     const d = this.device;
-    const group = (frame, shadowView, reflView) =>
+    const group = (frame, shadowView, reflView, nearView) =>
       d.createBindGroup({
         layout: this.sceneLayout,
         entries: [
@@ -316,9 +332,12 @@ export class LiveRenderer {
           { binding: 8, resource: this.shadowSampler },
           { binding: 9, resource: reflView },
           { binding: 10, resource: this.linear },
+          { binding: 11, resource: nearView },
+          { binding: 12, resource: { buffer: this.paneBuf } },
         ],
       });
     const shadowView = this.shadowTex.createView();
+    const nearView = this.nearTex.createView();
     const dummyDepth = this.dummyDepth.createView();
     const dummyColor = this.dummyColor.createView();
     const post = (buf, a, b) =>
@@ -331,9 +350,10 @@ export class LiveRenderer {
         ],
       });
     this.bindGroups = {
-      main: group(this.frameMain, shadowView, this.refl.createView()),
-      mirror: group(this.frameMirror, shadowView, dummyColor),
-      shadow: group(this.frameMain, dummyDepth, dummyColor),
+      main: group(this.frameMain, shadowView, this.refl.createView(), nearView),
+      mirror: group(this.frameMirror, shadowView, dummyColor, nearView),
+      shadow: group(this.frameMain, dummyDepth, dummyColor, dummyDepth),
+      shadowNear: group(this.frameNear, dummyDepth, dummyColor, dummyDepth),
       bright: post(this.postMain, this.hdr, this.glowB),
       // The second texture is unused by the blur; never the one it draws to.
       blurH: post(this.postH, this.glowA, this.hdr),
@@ -364,8 +384,30 @@ export class LiveRenderer {
     if (scissor && (scissor[2] <= 0 || scissor[3] <= 0)) mirror = false;
     // Lookups stay inside what was painted (texel centers, as sampleReflection).
     const reflRect = mirror ? [(scissor[0] + 0.5) / this.rw, (scissor[1] + 0.5) / this.rh, (scissor[0] + scissor[2] - 0.501) / this.rw, (scissor[1] + scissor[3] - 0.501) / this.rh] : [0, 0, 1, 1];
-    const common = { S: this.S, look: this.look, shadow: this.shadow, shadowSize: this.shadowSize, rippleT, starT, lightCount: this.lightCount, hasPool: Boolean(this.world.pool), seaLevel: this.world.seaLevel, mirrorY: M ? M.y : 0 };
+    // The tight shadow map, a little ahead of the eye; redrawn when the
+    // walker has left it behind or the sun has moved.
+    let nearDirty = false;
+    if (this.shadow && !this.skip.has('near')) {
+      const fx = cam.target[0] - cam.eye[0];
+      const fz = cam.target[2] - cam.eye[2];
+      const fl = Math.hypot(fx, fz) || 1;
+      const want = [cam.eye[0] + (fx / fl) * NEAR_AHEAD, cam.eye[1] - 1.6, cam.eye[2] + (fz / fl) * NEAR_AHEAD];
+      if (!this.nearAt || Math.hypot(want[0] - this.nearAt[0], want[1] - this.nearAt[1], want[2] - this.nearAt[2]) > NEAR_MOVE) {
+        this.nearAt = want;
+        this.near = nearShadowMatrix(this.S, this.world.shadowBox, want, NEAR_SPAN, NEAR_SIZE);
+        nearDirty = true;
+      }
+    } else {
+      this.near = null;
+    }
+    const common = { S: this.S, look: this.look, shadow: this.shadow, shadowSize: this.shadowSize, near: this.near, nearSize: NEAR_SIZE, rippleT, starT, lightCount: this.lightCount, hasPool: Boolean(this.world.pool), seaLevel: this.world.seaLevel, mirrorY: M ? M.y : 0 };
     d.queue.writeBuffer(this.frameMain, 0, packFrame({ ...common, cam, W, H, mirrorVP, reflection: mirror, reflRect }));
+    if (nearDirty) {
+      // The near pass draws with the same vertex stage, through its matrix.
+      const f = new Float32Array(FRAME_FLOATS);
+      f.set(this.near.m, 32);
+      d.queue.writeBuffer(this.frameNear, 0, f);
+    }
     if (mirror) d.queue.writeBuffer(this.frameMirror, 0, packFrame({ ...common, cam: mcam, W: this.rw, H: this.rh, pixelAngle, mirror: true, reflection: false }));
     const blurR = Math.max(1, Math.round(0.012 * H * 0.5));
     d.queue.writeBuffer(this.postMain, 0, new Float32Array([W, H, this.hw, this.hh, 1.1, 0.9, this.look.grain, blurR, 0, 0, 0, 0]));
@@ -385,6 +427,17 @@ export class LiveRenderer {
       pass.end();
     }
     this.shadowDirty = false;
+    if (nearDirty) {
+      const pass = enc.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: { view: this.nearTex.createView(), depthClearValue: 1, depthLoadOp: 'clear', depthStoreOp: 'store' },
+      });
+      pass.setPipeline(this.shadowPipe);
+      pass.setBindGroup(0, this.bindGroups.shadowNear);
+      pass.setVertexBuffer(0, this.vertices);
+      pass.draw(this.vertexCount);
+      pass.end();
+    }
     if (mirror && !this.skip.has('mirror')) {
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: this.refl.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }],

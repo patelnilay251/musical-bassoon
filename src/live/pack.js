@@ -12,9 +12,9 @@ import { CAST, DOUBLE, DISTANT } from '../mesh.js';
 // One vertex: position (3 floats), normal (3), uv (2), then two words:
 // material | flags << 16, and the object id.
 export const VERTEX_BYTES = 40;
-export const MATERIAL_FLOATS = 20;
+export const MATERIAL_FLOATS = 24;
 export const LIGHT_FLOATS = 8;
-export const FRAME_FLOATS = 164;
+export const FRAME_FLOATS = 184;
 export const POOL_FLOATS = 80;
 
 // Big triangles (the highway and its painted lines run for kilometers) are
@@ -25,7 +25,9 @@ export const POOL_FLOATS = 80;
 const MAX_EDGE = 40;
 const MARGIN = 150;
 
-export function packMesh(mesh, zone = null) {
+// `paneOf` (from packPanes) rides in the top half of each triangle's
+// object id: the pane of glass it belongs to, counted from 1.
+export function packMesh(mesh, zone = null, paneOf = null) {
   const out = [];
   const near = (P) => {
     if (!zone) return true;
@@ -67,7 +69,8 @@ export function packMesh(mesh, zone = null) {
     const P = [0, 1, 2].map((k) => [mesh.pos[t * 9 + k * 3], mesh.pos[t * 9 + k * 3 + 1], mesh.pos[t * 9 + k * 3 + 2]]);
     const N = [0, 1, 2].map((k) => [mesh.nrm[t * 9 + k * 3], mesh.nrm[t * 9 + k * 3 + 1], mesh.nrm[t * 9 + k * 3 + 2]]);
     const T = [0, 1, 2].map((k) => [mesh.uv[t * 6 + k * 2], mesh.uv[t * 6 + k * 2 + 1]]);
-    tri(P, N, T, mesh.mat[t] | (mesh.flags[t] << 16), mesh.obj[t]);
+    if (mesh.obj[t] > 0xffff) throw new Error('too many objects for the live painter');
+    tri(P, N, T, mesh.mat[t] | (mesh.flags[t] << 16), mesh.obj[t] | ((paneOf ? paneOf[t] : 0) << 16));
   }
   // One-sided triangles first, then two-sided ones: the painter culls the
   // back faces of all but the two-sided (raster.js), and so will the GPU.
@@ -100,8 +103,97 @@ export function packMesh(mesh, zone = null) {
   return { data: buf, count: n, single: single * 3 };
 }
 
+// Panes of glass a walker can look into (wgsl.js interior()): the upright
+// glass of each object, face by face, with its extent along the face and
+// up it. The glass of cars and boats stays glass.
+export const PANE_FLOATS = 8;
+const ROOM_GLASS = new Set(['glass', 'roomGlass']);
+
+export function packPanes(world) {
+  const mesh = world.mesh;
+  const paneOf = new Uint32Array(mesh.count);
+  const groups = new Map();
+  for (let t = 0; t < mesh.count; t++) {
+    const m = world.materials[mesh.mat[t]];
+    if (!ROOM_GLASS.has(m.name) || mesh.flags[t] & DISTANT) continue;
+    const nx = mesh.fn[t * 3];
+    const nz = mesh.fn[t * 3 + 2];
+    const h = Math.hypot(nx, nz);
+    if (h < 0.98) continue;
+    const key = `${mesh.obj[t]} ${Math.round((nx / h) * 24)} ${Math.round((nz / h) * 24)}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { tris: [], nx: 0, nz: 0 }));
+    g.tris.push(t);
+    g.nx += nx / h;
+    g.nz += nz / h;
+  }
+  const data = [];
+  for (const g of groups.values()) {
+    const l = Math.hypot(g.nx, g.nz);
+    const nx = g.nx / l;
+    const nz = g.nz / l;
+    let a0 = Infinity;
+    let a1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const t of g.tris) {
+      for (let k = 0; k < 3; k++) {
+        const x = mesh.pos[t * 9 + k * 3];
+        const y = mesh.pos[t * 9 + k * 3 + 1];
+        const z = mesh.pos[t * 9 + k * 3 + 2];
+        const a = -nz * x + nx * z;
+        a0 = Math.min(a0, a);
+        a1 = Math.max(a1, a);
+        y0 = Math.min(y0, y);
+        y1 = Math.max(y1, y);
+      }
+    }
+    const n = data.length / PANE_FLOATS + 1;
+    if (n > 0xffff) break;
+    for (const t of g.tris) paneOf[t] = n;
+    // What is inside: a motel room, a shop on the boulevard, or a lounge.
+    const style = world.materials[mesh.mat[g.tris[0]]].name === 'roomGlass' ? 0 : world.id === 'boulevard' ? 1 : 2;
+    data.push(a0, a1, y0, y1, nx, nz, style, 0);
+  }
+  return { data: Float32Array.from(data.length ? data : new Array(PANE_FLOATS).fill(0)), paneOf, count: data.length / PANE_FLOATS };
+}
+
 // Materials, with the power the world gives each lamp and sign, and the
 // road lanes their tar is worn by.
+// The grain a walker sees at arm's length and a painting never shows
+// (wgsl.js detail()), by material: live only, and faded out long before
+// the distances the painted views are taken from.
+export const DETAIL = { none: 0, stucco: 1, asphalt: 2, concrete: 3, bark: 4, sand: 5, wood: 6, grass: 7 };
+const DETAIL_OF = {
+  stucco: 'stucco',
+  wall: 'stucco',
+  accent: 'stucco',
+  trim: 'stucco',
+  boundary: 'stucco',
+  salmon: 'stucco',
+  mint: 'stucco',
+  butter: 'stucco',
+  lilac: 'stucco',
+  skyBlue: 'stucco',
+  asphalt: 'asphalt',
+  road: 'asphalt',
+  lot: 'asphalt',
+  drive: 'asphalt',
+  sidewalk: 'concrete',
+  deck: 'concrete',
+  coping: 'concrete',
+  curb: 'concrete',
+  trunk: 'bark',
+  fanTrunk: 'bark',
+  sand: 'sand',
+  wetSand: 'sand',
+  planks: 'wood',
+  teak: 'wood',
+  lawn: 'grass',
+  lawnTown: 'grass',
+  field: 'grass',
+};
+
 export function packMaterials(world) {
   const mats = world.materials;
   const power = world.emitScale ?? {};
@@ -131,6 +223,7 @@ export function packMaterials(world) {
       u[o + 19] = m.lanes.centers.length;
       lanes.push(...m.lanes.centers);
     }
+    u[o + 20] = DETAIL[DETAIL_OF[m.name] ?? 'none'];
   });
   return { data: buf, count: mats.length, lanes: Float32Array.from(lanes.length ? lanes : [0]) };
 }
@@ -298,11 +391,54 @@ export function shadowMatrix(S, box) {
 }
 
 /**
+ * A second, tight shadow map around a walker: `size` meters square in the
+ * light's view, centered on `center` and snapped to whole texels of a
+ * `mapSize` map (so shadows hold still as it follows), deep enough for
+ * every caster in the box. Near the walker the whole-box map is coarse:
+ * ten centimeters a texel on the boulevard.
+ */
+export function nearShadowMatrix(S, box, center, size, mapSize) {
+  const d = S.keyDir;
+  const up0 = Math.abs(d[1]) > 0.995 ? [0, 0, 1] : [0, 1, 0];
+  const right = normalize(cross(d, up0));
+  const up = cross(right, d);
+  let dmin = Infinity;
+  let dmax = -Infinity;
+  for (let i = 0; i < 8; i++) {
+    const p = [i & 1 ? box.max[0] : box.min[0], i & 2 ? box.max[1] : box.min[1], i & 4 ? box.max[2] : box.min[2]];
+    const w = p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
+    dmin = Math.min(dmin, w);
+    dmax = Math.max(dmax, w);
+  }
+  dmax += 60;
+  const texel = size / mapSize;
+  const cu = Math.round((center[0] * right[0] + center[1] * right[1] + center[2] * right[2]) / texel) * texel;
+  const cv = Math.round((center[0] * up[0] + center[1] * up[1] + center[2] * up[2]) / texel) * texel;
+  const s = 2 / size;
+  const sd = 1 / (dmax - dmin);
+  const m = new Float64Array(16);
+  m[0] = right[0] * s;
+  m[4] = right[1] * s;
+  m[8] = right[2] * s;
+  m[12] = -cu * s;
+  m[1] = up[0] * s;
+  m[5] = up[1] * s;
+  m[9] = up[2] * s;
+  m[13] = -cv * s;
+  m[2] = -d[0] * sd;
+  m[6] = -d[1] * sd;
+  m[10] = -d[2] * sd;
+  m[14] = dmax * sd;
+  m[15] = 1;
+  return { m, depthScale: sd, texel: size };
+}
+
+/**
  * Everything a frame's shaders need, as FRAME_FLOATS numbers:
  * cam = { eye, target, fovY, shift }, W x H the target, S = skyState(),
  * shadow = shadowMatrix() and its map size, and a few switches.
  */
-export function packFrame({ cam, W, H, S, look, shadow, shadowSize, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle, mirrorY = 0, reflRect = [0, 0, 1, 1] }) {
+export function packFrame({ cam, W, H, S, look, shadow, shadowSize, near = null, nearSize = 1, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle, mirrorY = 0, reflRect = [0, 0, 1, 1] }) {
   const L = lookOf(look);
   const f = new Float32Array(FRAME_FLOATS);
   const eye = cam.eye;
@@ -348,6 +484,10 @@ export function packFrame({ cam, W, H, S, look, shadow, shadowSize, rippleT, sta
   }
   f[159] = mirrorY;
   f.set(reflRect, 160);
+  if (shadow && near) {
+    f.set(near.m, 164);
+    f.set([near.texel / nearSize, 1, 0.015 * near.depthScale, 1 / nearSize], 180);
+  }
   return f;
 }
 

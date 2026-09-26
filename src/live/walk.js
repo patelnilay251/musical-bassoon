@@ -47,10 +47,21 @@ export function buildWalk(world, { cell: want = 0.25, margin = 12 } = {}) {
         return;
       }
     }
-    // Full: keep the highest floors.
-    let lo = 0;
-    for (let k = 1; k < FLOORS; k++) if (floors[o + k] < floors[o + lo]) lo = k;
-    if (y > floors[o + lo]) floors[o + lo] = y;
+    // Full: drop the floor with the least headroom, which nobody can stand
+    // on anyway (the lawn under a deck); if all have room, the highest.
+    const all = [floors[o], floors[o + 1], floors[o + 2], y];
+    let drop = -1;
+    let least = WALKER.height;
+    for (let k = 0; k < all.length; k++) {
+      let room = Infinity;
+      for (const v of all) if (v > all[k] + 0.05) room = Math.min(room, v - all[k]);
+      if (room < least) {
+        least = room;
+        drop = k;
+      }
+    }
+    if (drop < 0) for (let k = 0; k < all.length; k++) if (drop < 0 || all[k] > all[drop]) drop = k;
+    if (drop < FLOORS) floors[o + drop] = y;
   };
   const addSpan = (c, a, b) => {
     const o = c * SPANS * 2;
@@ -111,8 +122,8 @@ export function buildWalk(world, { cell: want = 0.25, margin = 12 } = {}) {
     const fz = mesh.fn[t * 3 + 2];
     const fd = mesh.fd[t];
     const water = kind === KIND.water || kind === KIND.harbor;
-    // A two-sided plank can be wound either way up.
-    const floor = !water && (fy > 0.7 || (mesh.flags[t] & DOUBLE && fy < -0.7));
+    // A two-sided plank can be wound either way up. Leaves are never floors.
+    const floor = !water && kind !== KIND.foliage && (fy > 0.7 || (mesh.flags[t] & DOUBLE && fy < -0.7));
     const upright = Math.abs(fy) < 0.05;
     // Floors and water take the cells they cover, not the ones they only
     // touch along an edge; walls take both.
@@ -297,9 +308,24 @@ export function walk(W, pos, dx, dz, w = WALKER) {
   return { x, y, z };
 }
 
-/** Where a walker standing near (x, z) would stand, or null. */
+/**
+ * Where a walker standing near (x, z), on the highest floor no higher than
+ * `from`, would stand, or null. If that spot is inside something (a
+ * railing, a bush), the nearest clear spot on the same level within two
+ * meters.
+ */
 export function standAt(W, x, z, from = 50, w = WALKER) {
   const f = floorAt(W, x, z, from);
   if (Number.isNaN(f)) return null;
+  if (!blocked(W, x, z, f, w)) return { x, y: f, z };
+  for (let r = 0.2; r <= 2.001; r += 0.2) {
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      const cx = x + r * Math.cos(a);
+      const cz = z + r * Math.sin(a);
+      const g = floorAt(W, cx, cz, f + w.step);
+      if (Math.abs(g - f) < 0.5 && !blocked(W, cx, cz, g, w)) return { x: cx, y: g, z: cz };
+    }
+  }
   return { x, y: f, z };
 }
