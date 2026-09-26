@@ -1,9 +1,10 @@
 // Close-up structure for the live town: the hardware and framing a walker
 // passes at arm's length and no painted view has ever needed. Knobs, kick
 // plates and number plates on the doors; mullions and transoms across the
-// big panes of shops and lounges. It is added to a finished world, never
-// built into it, so the painted town and its films stay exactly as they
-// are.
+// big panes of shops and lounges; the openings a walker needs where a
+// painting drew a rail straight across. It is added to a finished world,
+// never built into it, so the painted town and its films stay exactly as
+// they are.
 
 import { MeshBuilder, finalizeMesh, CAST, SMOOTH } from '../mesh.js';
 import { addText } from '../world/font.js';
@@ -13,7 +14,7 @@ const DOORS = new Set(['door', 'doorRed', 'doorYellow', 'doorBlue', 'doorGreen',
 
 /** The world with its close-up structure added (a new mesh; the rest shared). */
 export function addDetail(world) {
-  const mesh = world.mesh;
+  const mesh = openSteps(world, world.mesh);
   // Door hardware in brass, a lacquer of its own the painted town never needed.
   const materials = [...world.materials, { name: 'brass', kind: 'paint', color: '#d9b25a' }];
   const mat = (name) => materials.findIndex((m) => m.name === name);
@@ -31,9 +32,80 @@ export function addDetail(world) {
   const numbers = world.id === 'motel' ? roomNumbers(faces) : new Map();
   for (const f of faces) door(b, f, brass, plate, ink, numbers.get(f.obj));
   if (frame >= 0) mullions(b, world, frame);
+  gateway(b, world, mat('drive'));
 
-  if (b.mat.length === 0) return world;
+  if (b.mat.length === 0) return mesh === world.mesh ? world : { ...world, mesh };
   return { ...world, materials, mesh: mergeMeshes(mesh, finalizeMesh(b)) };
+}
+
+// The house's drive stops at the line of its east wall, and the fields
+// beyond begin a wall's thickness further on: a crack a painting never
+// looks into, and a walker going out of the gate would. Floored across.
+function gateway(b, world, drive) {
+  const D = world.id === 'house' && world.layout?.drive;
+  if (!D || drive < 0) return;
+  b.object();
+  b.use(drive, 0);
+  const y = 0.04;
+  b.quad([D.x1, y, D.z0], [D.x1, y, D.z1], [D.x1 + 0.36, y, D.z1], [D.x1 + 0.36, y, D.z0]);
+}
+
+// The beach's promenade rail runs unbroken past its steps down to the
+// sand (layout.steps): live, it stops either side of each flight, and the
+// posts between go, so a walker can go down to the water and back.
+function openSteps(world, mesh) {
+  const S = world.layout?.steps;
+  if (!S) return mesh;
+  const rail = new Set(world.materials.flatMap((m, i) => (m.name === 'rail' ? [i] : [])));
+  const out = { pos: [], nrm: [], uv: [], mat: [], flags: [], obj: [] };
+  const V = (t, k) => ({
+    p: [mesh.pos[t * 9 + k * 3], mesh.pos[t * 9 + k * 3 + 1], mesh.pos[t * 9 + k * 3 + 2]],
+    n: [mesh.nrm[t * 9 + k * 3], mesh.nrm[t * 9 + k * 3 + 1], mesh.nrm[t * 9 + k * 3 + 2]],
+    u: [mesh.uv[t * 6 + k * 2], mesh.uv[t * 6 + k * 2 + 1]],
+  });
+  const emit = (poly, t) => {
+    for (let k = 1; k + 1 < poly.length; k++) {
+      for (const v of [poly[0], poly[k], poly[k + 1]]) {
+        out.pos.push(...v.p);
+        out.nrm.push(...v.n);
+        out.uv.push(...v.u);
+      }
+      out.mat.push(mesh.mat[t]);
+      out.flags.push(mesh.flags[t]);
+      out.obj.push(mesh.obj[t]);
+    }
+  };
+  for (let t = 0; t < mesh.count; t++) {
+    const poly = [V(t, 0), V(t, 1), V(t, 2)];
+    const onRail = rail.has(mesh.mat[t]) && poly.every((v) => v.p[0] > S.x - 0.7 && v.p[0] < S.x + 0.4 && v.p[1] > S.y);
+    if (!onRail) {
+      emit(poly, t);
+      continue;
+    }
+    // What lies outside every opening.
+    let pieces = [poly];
+    for (const z of S.z) pieces = pieces.flatMap((p) => [cutZ(p, z - S.half, -1), cutZ(p, z + S.half, 1)]).filter((p) => p.length >= 3);
+    for (const p of pieces) emit(p, t);
+  }
+  return finalizeMesh(out);
+}
+
+// The part of a polygon on one side of z = v (keep > 0: beyond it).
+function cutZ(poly, v, keep) {
+  const out = [];
+  for (let k = 0; k < poly.length; k++) {
+    const a = poly[k];
+    const c = poly[(k + 1) % poly.length];
+    const da = (a.p[2] - v) * keep;
+    const dc = (c.p[2] - v) * keep;
+    if (da >= 0) out.push(a);
+    if (da >= 0 !== dc >= 0) {
+      const s = da / (da - dc);
+      const mix = (x, y) => x.map((q, i) => q + (y[i] - q) * s);
+      out.push({ p: mix(a.p, c.p), n: mix(a.n, c.n), u: mix(a.u, c.u) });
+    }
+  }
+  return out;
 }
 
 // The big upright faces of every door: each with its plane (n, w), its

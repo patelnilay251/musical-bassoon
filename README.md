@@ -7,7 +7,7 @@ A motel on the coast highway, a boulevard laid out on the midsummer sunset, a be
 ![Paloma Bay in the Cobalt look: the motel, the boulevard at sunset, the beach, the house, the marina, the motel walkway, the beach at sunset, the docks, the diner](docs/gallery/cobalt/town.png)
 
 - **Visit the town:** [`docs/index.html`](docs/index.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/)). Full screen, one picture at a time, nothing else on it. Drag across the painting to pass the day. `←` `→` go to another place and `↑` `↓` to another view of it; on a phone, tap the edges or flick up and down. `Space` lets the day go by on its own, and `L` (or the switch in the corner) turns the town to the other look. The page opens wherever the visitor happens to be at your local time, in the look you chose last.
-- **Walk the town:** [`docs/live.html`](docs/live.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/live.html)). All five places, painted live on your graphics chip by the same rules, in either look. Click and walk with `W` `A` `S` `D` (`shift` to run) and look around with the mouse. Climb the motel stairs to the walkway, walk down the boulevard to the sea, go up the gangway from the docks to the quay. `1` to `5` (or the names at the top) take you to another place, `[` `]` or the wheel change the hour, and `space` lets the day pass. It needs WebGPU: Chrome, Edge, or Safari 26 and later.
+- **Walk the town:** [`docs/live.html`](docs/live.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/live.html)). The whole town as one stretch of coast, painted live on your graphics chip by the same rules, in either look. Click and walk with `W` `A` `S` `D` (`shift` to run) and look around with the mouse. Walk from the house on its point down the coast road past the harbor, go down the steps to the beach, up the boulevard, and on to the motel; climb the motel stairs to the walkway, or go up the gangway from the docks to the quay. `1` to `5` (or the names at the top) take you straight to a place, `[` `]` or the wheel change the hour, and `space` lets the day pass. It needs WebGPU: Chrome, Edge, or Safari 26 and later.
 - **The book:** [`docs/book.html`](docs/book.html). *Wish You Were Here*: ten postcards from one summer day, sent by someone who never appears in any of them, in either look.
 - **The film:** [`docs/day.html`](docs/day.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/day.html)). *One Day in Paloma Bay*: three minutes of one summer day, passing through every postcard in the book, with its own score. The 1080p master is on the [releases page](https://github.com/patelnilay251/musical-bassoon/releases/tag/render-day-final).
 - **The arcade version:** [`docs/film.html`](docs/film.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/film.html)). *Paloma Bay, the attract mode*: 86 seconds of an arcade game from a summer that never happened, with its own music.
@@ -85,18 +85,42 @@ The first version rendered a resort. This one tries to paint a town, the way an 
 
 ## Walking the town
 
-The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain. A live frame and a painted one of the same view are within one to three levels of 255 on average, apart from the edges of things.
+The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain.
 
 - **The camera stays level**, as in the paintings. Looking up or down slides the frame, like the rising front of a view camera, so the motel's posts and the palms stay vertical.
-- **Walking** (`src/live/walk.js`) reads the place's own triangles into a grid of 25 cm cells (a little coarser on the long boulevard): where the floors are, what stands in the way, and where the water is. You can step up a curb, climb a stair or a gangway, but not walk through a wall, and you never stand below the water. Each walk starts where the place's hero picture is taken. The marina is the exception: its hero picture is taken from the yacht club's terrace, which has no stairs down, so the walk starts at the end of a dock.
+- **Walking** (`src/live/walk.js`) reads the town's triangles into a grid of 25 cm cells, built 48 meters at a time as you come near: where the floors are, what stands in the way, and where the water is. You can step up a curb, climb a stair or a gangway, but not walk through a wall, and you never stand below the water. What is too high to matter is measured from each cell's own ground, since the town climbs thirty meters up the boulevard. A crack one cell wide between two floors is stepped over. The live town adds the openings a walker needs where a painting drew straight across: a gap in the beach rail at each flight of steps down to the sand, and a floor through the house's gate. From every place you can walk to the coast road.
+- **Each walk starts where the place's hero picture is taken.** The marina is the exception: its hero picture is taken from the yacht club's terrace, which has no stairs down, so the walk starts at the end of a dock.
+- **The town is laid out a place at a time:** the one you start in first, then its neighbors, nearest first, while you look around.
 - **Back faces are culled, as the painter does.** Open water is one sheet seen from above. The mirrored camera sees it from below, and it must not paint over the boats reflected in it.
-- **Big triangles are cut small near the camera.** The highway and its painted lines run for twelve kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it.
+- **Big triangles are cut small wherever a camera can be.** The motel's highway and its painted lines run for kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it. They are cut along one grid of 28 m squares, so neighbors still meet corner to corner.
+- **Only what can be seen is drawn.** Each piece of the town is laid out in 96 m squares of ground. The camera, the mirror and each shadow map draw only the squares they can see, and the mirror only the part of them its water shows. Open water isn't mirrored at all when none is in view. The water mirrored is the nearest pool in view, otherwise the sea.
+- **Lamps by the square.** The ground is cut into 16 m squares, each listing the lamps whose light can reach it. A point asks only those, and gets exactly the light it would if it asked all three hundred.
+
+### One coast
+
+Live, the five places are one town (`src/live/town.js`), laid along a coast that faces west into the sunset. North to south: the house on its point, the marina and its harbor, the beach, the boulevard coming down to the coast road, and the motel. The coast road runs the whole length, three kilometers, and each place is a minute or two's walk from the next.
+
+- **Each place is built exactly as the painted town builds it**, then moved into place. It is never turned: the light in every postcard depends on which way the place faces. Heights are set so every place's own sea is the town's.
+- **Each place keeps its own ground**, cut to an outline, and the town adds its own sea, hills and horizon. Standing things (a shop, a palm, a parked car) come in whole or not at all, by where their middle is. Only the ground, roads and long walls are cut, so no shop at an edge stands open to the street.
+- **Between the places is the town's own ground** (`src/live/ground.js`):
+  - the coast road wherever no place brings its own, with its sidewalks, fan palms and lamps;
+  - the shore from each place to the next: a sea wall north of the house, a rock face down to the harbor, a mound of rubble carrying a walkway out to the breakwater, a promenade and new sand from the quay to the beach, then a groyne and a sea wall on to the motel;
+  - the foot of the boulevard, carried down level to the road;
+  - fields behind, and hills.
+- **One sea and one sky.** Out at sea the waves are the beach's, and inside the breakwater they are the marina's own. Each place's patterns, grain and ripples, and the airbrush up its walls, are laid from where the place stands, so they fall exactly as in its own pictures.
+
+The postcard views, taken in the town, are within one to five levels of 255 of the painted stills on average. Where they differ most it is the town itself: land behind the marina where its painting has open sea, and one sky's clouds for the whole coast.
 
 ### Up close
 
 A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town. The shaders' additions fade out within twenty meters (the rooms behind the glass within fourteen), so from where the painted views are taken the live town still looks like them. The geometry is added to a finished world (`src/live/detail.js`), never built into it.
 
-- **A second shadow map follows the walker.** It is 40 m across at a centimeter a texel, read with nine taps. The whole-box map is ten centimeters a texel on the boulevard. Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first three degrees, so a low sun along a wall doesn't paint it in teeth.
+- **Three shadow maps follow the walker**, each handing over to the next across its rim:
+  - 40 m across at a centimeter a texel, read with nine taps;
+  - 240 m across at six centimeters;
+  - 1.1 km across at a quarter meter, as far as the haze lets anything be seen.
+
+  Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first three degrees, so a low sun along a wall doesn't paint it in teeth. Past the last caster, a map reads as lit, as the painter's does.
 - **Grain, by material:**
   - sprayed stucco on the walls;
   - stones in the asphalt, with sealed cracks that wander;
@@ -141,7 +165,7 @@ The boulevard is built in a road frame and turned onto the sunset bearing. Every
 Node 22 or newer. `npm install` brings in esbuild, which is used only to bundle the site.
 
 ```sh
-npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town
+npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town and its coast
 npm run build            # docs/index.html (the town), docs/live.html (the live town) and docs/workshop.html (the old viewer)
 npm run book             # the postcards in both looks, in parallel on every core, into docs/book/<look>/ and docs/book.html
 npm run gallery          # the contact sheets above, in both looks, into docs/gallery/<look>/

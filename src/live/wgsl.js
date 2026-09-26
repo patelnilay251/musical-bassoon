@@ -72,6 +72,9 @@ struct Frame {
   reflRect: vec4f,   // the part of the mirror that was painted, in uv
   nearMat: mat4x4f,  // the tight shadow map around the walker
   nearInfo: vec4f,   // texel (m), on, depth bias, texel (uv)
+  midMat: mat4x4f,   // the middle one, a few hundred meters around
+  midInfo: vec4f,    // texel (m), on, depth bias, texel (uv)
+  mirrorInfo: vec4f, // which water was mirrored: a pool's index, or -1 the sea
 };
 
 struct Material {
@@ -90,9 +93,9 @@ struct Material {
   laneStart: u32,
   laneCount: u32,
   detail: u32,       // close-up grain (pack.js DETAIL)
-  pad0: u32,
-  pad1: u32,
-  pad2: u32,
+  ox: f32,           // where its place stands in the town: what it is
+  oy: f32,           // painted with is laid from there, as in the
+  oz: f32,           // place's own pictures
 };
 
 struct Light {
@@ -102,23 +105,39 @@ struct Light {
   k: f32,
 };
 
-// A place's water: a pool, open water (a harbor or the sea off a beach),
-// or both.
-struct Pool {
-  rect: vec4f,    // pool x0, x1, z0, z1
-  levels: vec4f,  // pool water y, floor y, pool wave count, open-water wave count
-  tile: vec4f,
+// A place's water: its pools, and open water (a harbor, the sea off a
+// beach, or the whole coast of the town with the marina's own calm water
+// inside the breakwater, and shallows wherever the coast is sand).
+struct PoolOne {
+  rect: vec4f,    // x0, x1, z0, z1
+  levels: vec4f,  // water y, floor y, wave count, the x its ripples are laid from
+  tile: vec4f,    // rgb, the z they are laid from
   lane: vec4f,
   water: vec4f,
   glow: vec4f,
-  waves: array<vec4f, 4>, // the pool's: kx, kz, w, phase
+  waves: array<vec4f, 4>, // kx, kz, w, phase
   amps: vec4f,
-  hwaves: array<vec4f, 4>, // open water's
+};
+
+struct Water {
+  pools: array<PoolOne, 2>,
+  info: vec4f,        // pool count, -, open-water wave count, -
+  hwaves: array<vec4f, 4>,
   hamps: vec4f,
-  near: vec4f,    // open water near, falloff
-  far: vec4f,     // open water far, shallows (1/0)
-  shallow: vec4f, // shallows: a.x, a.z, d, w
+  near: vec4f,        // open water near, falloff
+  far: vec4f,         // open water far, shallows (1/0)
+  shallow: vec4f,     // shallows' width, -, coast points, -
   shallowColor: vec4f,
+  harbor: vec4f,      // the calm harbor: x0, x1, z0, z1
+  harbor2: vec4f,     // its edge, -, -, -
+  harborNear: vec4f,
+  harborFar: vec4f,
+  coast: array<vec4f, 16>, // z, the waterline's x, sand (1/0), -
+  harborWaves: array<vec4f, 4>, // the harbor's own
+  harborAmps: vec4f,
+  origins: vec4f,     // where the sea's waves are laid from (x, z), and the harbor's
+  harbor3: vec4f,     // the harbor's wave count, -, -, -
+  spare: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> F: Frame;
@@ -127,13 +146,15 @@ struct Pool {
 @group(0) @binding(3) var<storage, read> lights: array<Light>;
 @group(0) @binding(4) var<storage, read> lanes: array<f32>;
 @group(0) @binding(5) var<storage, read> sky: array<vec4f>;
-@group(0) @binding(6) var<uniform> pool: Pool;
+@group(0) @binding(6) var<uniform> water: Water;
 @group(0) @binding(7) var shadowMap: texture_depth_2d;
 @group(0) @binding(8) var shadowSampler: sampler_comparison;
 @group(0) @binding(9) var reflTex: texture_2d<f32>;
 @group(0) @binding(10) var linearSampler: sampler;
 @group(0) @binding(11) var nearMap: texture_depth_2d;
 @group(0) @binding(12) var<storage, read> panes: array<vec4f>; // a0, a1, y0, y1; nx, nz, -, -
+@group(0) @binding(13) var midMap: texture_depth_2d;
+@group(0) @binding(14) var<storage, read> lampGrid: array<u32>; // pack.js packLampGrid
 
 // smoothstep as the painter writes it: edges may come in either order.
 fn ss(e0: f32, e1: f32, x: f32) -> f32 {
@@ -402,36 +423,61 @@ fn farShadow(p: vec3f, n: vec3f) -> f32 {
   let c = F.shadowMat * vec4f(q, 1.0);
   let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { return 1.0; }
-  return textureSampleCompareLevel(shadowMap, shadowSampler, uv, c.z - F.shadowInfo.z);
+  // Beyond the map's depth, only a caster shadows (as the painter's map):
+  // what lies past every caster is lit where nothing is drawn.
+  return textureSampleCompareLevel(shadowMap, shadowSampler, uv, min(c.z - F.shadowInfo.z, 1.0));
 }
 
 // Near the walker, the tight map: nine bilinear reads a texel apart, so an
-// edge up close is a soft line rather than a staircase. It hands over to
-// the whole-box map across its outer rim.
-fn shadowAt(p: vec3f, n: vec3f) -> f32 {
-  if (F.shadowInfo.y < 0.5) { return 0.0; }
-  if (F.nearInfo.y > 0.5) {
-    let q = p + n * (F.nearInfo.x * nudge(n));
-    let c = F.nearMat * vec4f(q, 1.0);
-    let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
-    let edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
-    if (edge > 0.0) {
-      let z = c.z - F.nearInfo.z;
-      // Where the light grazes a face, one texel stretches across it into
-      // a long tooth: read wider there, a soft penumbra instead.
-      let t = F.nearInfo.w * (1.0 + 4.0 * (1.0 - ss(0.05, 0.35, dot(n, F.keyDir.xyz))));
-      var s = 0.0;
-      for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-          s += textureSampleCompareLevel(nearMap, shadowSampler, uv + vec2f(f32(i), f32(j)) * t, z);
-        }
-      }
-      s /= 9.0;
-      if (edge >= 0.06) { return s; }
-      return mix(farShadow(p, n), s, edge / 0.06);
+// edge up close is a soft line rather than a staircase; a few hundred
+// meters around, the middle map; beyond, the far one. Each hands over to
+// the next across its outer rim. Returns (light, how much this map counts).
+fn nearShadow(p: vec3f, n: vec3f) -> vec2f {
+  if (F.nearInfo.y < 0.5) { return vec2f(1.0, 0.0); }
+  let q = p + n * (F.nearInfo.x * nudge(n));
+  let c = F.nearMat * vec4f(q, 1.0);
+  let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
+  let edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
+  if (edge <= 0.0) { return vec2f(1.0, 0.0); }
+  let z = min(c.z - F.nearInfo.z, 1.0);
+  // Where the light grazes a face, one texel stretches across it into a
+  // long tooth: read wider there, a soft penumbra instead.
+  let t = F.nearInfo.w * (1.0 + 4.0 * (1.0 - ss(0.05, 0.35, dot(n, F.keyDir.xyz))));
+  var s = 0.0;
+  for (var j = -1; j <= 1; j++) {
+    for (var i = -1; i <= 1; i++) {
+      s += textureSampleCompareLevel(nearMap, shadowSampler, uv + vec2f(f32(i), f32(j)) * t, z);
     }
   }
-  return farShadow(p, n);
+  return vec2f(s / 9.0, min(1.0, edge / 0.06));
+}
+
+fn midShadow(p: vec3f, n: vec3f) -> vec2f {
+  if (F.midInfo.y < 0.5) { return vec2f(1.0, 0.0); }
+  let q = p + n * (F.midInfo.x * nudge(n));
+  let c = F.midMat * vec4f(q, 1.0);
+  let uv = vec2f(c.x * 0.5 + 0.5, 0.5 - c.y * 0.5);
+  let edge = min(min(uv.x, uv.y), min(1.0 - uv.x, 1.0 - uv.y));
+  if (edge <= 0.0) { return vec2f(1.0, 0.0); }
+  let z = min(c.z - F.midInfo.z, 1.0);
+  let t = F.midInfo.w * 0.5;
+  var s = 0.0;
+  for (var j = -1; j <= 1; j += 2) {
+    for (var i = -1; i <= 1; i += 2) {
+      s += textureSampleCompareLevel(midMap, shadowSampler, uv + vec2f(f32(i), f32(j)) * t, z);
+    }
+  }
+  return vec2f(s / 4.0, min(1.0, edge / 0.08));
+}
+
+fn shadowAt(p: vec3f, n: vec3f) -> f32 {
+  if (F.shadowInfo.y < 0.5) { return 0.0; }
+  let a = nearShadow(p, n);
+  if (a.y >= 1.0) { return a.x; }
+  let b = midShadow(p, n);
+  var rest = b.x;
+  if (b.y < 1.0) { rest = mix(farShadow(p, n), b.x, b.y); }
+  return mix(rest, a.x, a.y);
 }
 
 // The painted shade of material m on a face whose normal has height ny.
@@ -887,7 +933,7 @@ fn interior(pane: u32, id: u32, p: vec3f, d: vec3f, lamp: f32, warm: vec3f) -> v
 
 // Glass as an illustrator paints it: deep at the foot of each floor, lifting
 // toward the sky, diagonal bands of light, and lit rooms after dark.
-fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
+fn shadeGlass(m: u32, ids: u32, p: vec3f, q: vec3f, n0: vec3f, d: vec3f) -> vec3f {
   // The object id, and in the top half the pane it belongs to (pack.js).
   let obj = ids & 0xffffu;
   let pane = ids >> 16u;
@@ -898,7 +944,8 @@ fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
   let rz = d.z + 2.0 * c * n.z;
   let rl = orOne(sqrt(rx * rx + rz * rz));
   let T = skyColor(vec3f((rx / rl) * 0.96, 0.28, (rz / rl) * 0.96), false);
-  let hh = (p.y - 0.15) / 3.3 - floor((p.y - 0.15) / 3.3);
+  // The bands are laid from the place's own ground (q, not p).
+  let hh = (q.y - 0.15) / 3.3 - floor((q.y - 0.15) / 3.3);
   let k = 0.18 + 0.62 * powz(hh, 1.35);
   let deep = vec3f(0.05, 0.09, 0.22) + F.amb.rgb * vec3f(0.16, 0.2, 0.34);
   var col = deep + (T - deep) * k;
@@ -907,8 +954,8 @@ fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
   let tl = orOne(sqrt(tx * tx + tz * tz));
   tx /= tl;
   tz /= tl;
-  let along = p.x * tx + p.z * tz;
-  let dd = (along * 0.55 + p.y) / 2.6 + 0.3;
+  let along = q.x * tx + q.z * tz;
+  let dd = (along * 0.55 + q.y) / 2.6 + 0.3;
   let f = dd - floor(dd);
   var band = 0.0;
   if (f > 0.1 && f < 0.26) { band = 0.3; } else if (f > 0.34 && f < 0.39) { band = 0.2; }
@@ -956,6 +1003,9 @@ fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
 fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d: vec3f, dist: f32) -> vec3f {
   let M = mats[m];
   let kind = M.kind;
+  // Where the point is in its own place: patterns, grain and the airbrush
+  // go by that; light, shadow and haze by where it is in the town.
+  let q = p - vec3f(M.ox, M.oy, M.oz);
   let smoothN = (flags & SMOOTH) != 0u;
   let painted = F.haze2.y > 0.5;
   var n = nIn;
@@ -1005,7 +1055,7 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       }
     }
     if (pat != P_NONE) {
-      let f = pattern(pat, m, p, uv, dist, d);
+      let f = pattern(pat, m, q, uv, dist, d);
       if (f < 0.0) {
         col *= (M.color2 / max(c, vec3f(1e-3))) * (-f);
       } else {
@@ -1013,10 +1063,10 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       }
     }
     if ((flags & DISTANT) == 0u) {
-      col *= detail(m, p, fnorm, uv, dist, dist * F.eye.w * 1.5);
+      col *= detail(m, q, fnorm, uv, dist, dist * F.eye.w * 1.5);
       if (n.y < 0.35 && n.y > -0.35) {
         // Walls are airbrushed top to bottom.
-        let hh = clamp(p.y / 7.0, 0.0, 1.0);
+        let hh = clamp(q.y / 7.0, 0.0, 1.0);
         if (lit > 0.5) {
           col *= 1.0 + 0.07 * (hh - 0.45);
         } else {
@@ -1025,7 +1075,7 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
         }
       }
       if (M.ao != 0u) {
-        col *= 0.9 + 0.1 * ss(0.0, 0.9, p.y);
+        col *= 0.9 + 0.1 * ss(0.0, 0.9, q.y);
       }
     }
   } else if (kind == K_FOLIAGE) {
@@ -1056,10 +1106,10 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       col *= vec3f(f * (F.frond.w + F.frond2.x * u), f, f * (1.02 - 0.08 * u));
     }
     if ((flags & DISTANT) == 0u) {
-      col *= detail(m, p, n, uv, dist, dist * F.eye.w * 1.5);
+      col *= detail(m, q, n, uv, dist, dist * F.eye.w * 1.5);
     }
   } else if (kind == K_GLASS) {
-    col = shadeGlass(m, obj, p, n, d);
+    col = shadeGlass(m, obj, p, q, n, d);
   } else if (kind == K_CHROME) {
     let cc = -dot(n, d);
     let r = d + 2.0 * cc * n;
@@ -1118,20 +1168,29 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
     col = c;
   }
 
-  // Warm pools of artificial light after dusk.
+  // Warm pools of artificial light after dusk: the lamps whose light can
+  // reach this square of ground.
   if (F.misc.y > 0.0 && kind != K_LAMP && kind != K_NEON && kind != K_GLASS && (flags & DISTANT) == 0u) {
     var acc = vec3f(0.0);
-    let count = u32(F.haze2.z);
-    for (var i = 0u; i < count; i++) {
-      let Lt = lights[i];
-      let q = Lt.p - p;
-      let d2 = dot(q, q);
-      let rr = Lt.r * Lt.r;
-      if (d2 > rr * 16.0) { continue; }
-      let dl = orOne(sqrt(d2));
-      let cs = dot(q, n) / dl;
-      if (cs <= 0.0) { continue; }
-      acc += Lt.c * ((Lt.k * cs) / (1.0 + d2 / rr));
+    let cell = bitcast<f32>(lampGrid[2]);
+    let gx = floor((p.x - bitcast<f32>(lampGrid[0])) / cell);
+    let gz = floor((p.z - bitcast<f32>(lampGrid[1])) / cell);
+    let gnx = lampGrid[3];
+    if (gx >= 0.0 && gz >= 0.0 && gx < f32(gnx) && gz < f32(lampGrid[4])) {
+      let at = 8u + (u32(gz) * gnx + u32(gx)) * 2u;
+      let first = lampGrid[at];
+      let count = lampGrid[at + 1u];
+      for (var i = 0u; i < count; i++) {
+        let Lt = lights[lampGrid[first + i]];
+        let q = Lt.p - p;
+        let d2 = dot(q, q);
+        let rr = Lt.r * Lt.r;
+        if (d2 > rr * 16.0) { continue; }
+        let dl = orOne(sqrt(d2));
+        let cs = dot(q, n) / dl;
+        if (cs <= 0.0) { continue; }
+        acc += Lt.c * ((Lt.k * cs) / (1.0 + d2 / rr));
+      }
     }
     col += c * acc * F.misc.y;
   }
@@ -1164,30 +1223,85 @@ struct Ripple {
   along: f32,
 };
 
-fn wave(open: bool, i: u32) -> vec4f {
-  return select(pool.waves[i], pool.hwaves[i], open);
+// Which pool a point is in (by its rectangle).
+fn poolAt(x: f32, z: f32) -> u32 {
+  let n = u32(water.info.x);
+  for (var i = 0u; i < n; i++) {
+    let r = water.pools[i].rect;
+    if (x > r.x - 1.0 && x < r.y + 1.0 && z > r.z - 1.0 && z < r.w + 1.0) { return i; }
+  }
+  return 0u;
 }
 
-fn ripple(px: f32, pz: f32, tm: f32, open: bool) -> Ripple {
-  var hx = 0.0;
-  var hz = 0.0;
-  let nw = u32(select(pool.levels.z, pool.levels.w, open));
-  for (var i = 0u; i < nw; i++) {
-    let w = wave(open, i);
-    let a = select(pool.amps[i], pool.hamps[i], open);
-    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * a;
-    hx += cw * w.x;
-    hz += cw * w.y;
+// How far into the calm harbor (x, z) is: 0 out at sea, 1 inside.
+fn harborAt(x: f32, z: f32) -> f32 {
+  let h = water.harbor;
+  let e = max(water.harbor2.x, 0.001);
+  return ss(h.x - e, h.x + e, x) * ss(h.y + e, h.y - e, x) * ss(h.z - e, h.z + e, z) * ss(h.w + e, h.w - e, z);
+}
+
+// The waterline's x and whether it is sand, at z, from the coast's points.
+fn coastAt(z: f32) -> vec2f {
+  let n = u32(water.shallow.z);
+  var prev = water.coast[0];
+  if (z <= prev.x) { return vec2f(prev.y, prev.z); }
+  for (var i = 1u; i < n; i++) {
+    let c = water.coast[i];
+    if (z <= c.x) {
+      let u = (z - prev.x) / max(c.x - prev.x, 0.001);
+      return vec2f(mix(prev.y, c.y, u), mix(prev.z, c.z, u));
+    }
+    prev = c;
   }
-  let w0 = wave(open, 0u);
-  let w1 = wave(open, 1u);
-  let w2 = wave(open, 2u);
+  return vec2f(prev.y, prev.z);
+}
+
+fn rippleOf(hx: f32, hz: f32, w0: vec4f, w1: vec4f, w2: vec4f, px: f32, pz: f32, tm: f32) -> Ripple {
   var r: Ripple;
   r.phase = w0.x * px + w0.y * pz + w0.z * tm + w0.w + 0.9 * sin(w1.x * px + w1.y * pz + w1.z * tm + w1.w) + 0.45 * sin(w2.x * px + w2.y * pz + w2.z * tm + w2.w);
   r.tilt = vec2f(-hx, -hz);
   r.k0 = sqrt(w0.x * w0.x + w0.y * w0.y);
   r.along = (-w0.y * px + w0.x * pz) / r.k0;
   return r;
+}
+
+fn ripplePool(i: u32, px: f32, pz: f32, tm: f32) -> Ripple {
+  var hx = 0.0;
+  var hz = 0.0;
+  let nw = u32(water.pools[i].levels.z);
+  for (var k = 0u; k < nw; k++) {
+    let w = water.pools[i].waves[k];
+    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * water.pools[i].amps[k];
+    hx += cw * w.x;
+    hz += cw * w.y;
+  }
+  return rippleOf(hx, hz, water.pools[i].waves[0], water.pools[i].waves[1], water.pools[i].waves[2], px, pz, tm);
+}
+
+fn rippleSea(px: f32, pz: f32, tm: f32) -> Ripple {
+  var hx = 0.0;
+  var hz = 0.0;
+  let nw = u32(water.info.z);
+  for (var k = 0u; k < nw; k++) {
+    let w = water.hwaves[k];
+    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * water.hamps[k];
+    hx += cw * w.x;
+    hz += cw * w.y;
+  }
+  return rippleOf(hx, hz, water.hwaves[0], water.hwaves[1], water.hwaves[2], px, pz, tm);
+}
+
+fn rippleHarbor(px: f32, pz: f32, tm: f32) -> Ripple {
+  var hx = 0.0;
+  var hz = 0.0;
+  let nw = u32(water.harbor3.x);
+  for (var k = 0u; k < nw; k++) {
+    let w = water.harborWaves[k];
+    let cw = cos(w.x * px + w.y * pz + w.z * tm + w.w) * water.harborAmps[k];
+    hx += cw * w.x;
+    hz += cw * w.y;
+  }
+  return rippleOf(hx, hz, water.harborWaves[0], water.harborWaves[1], water.harborWaves[2], px, pz, tm);
 }
 
 // Painted bands and white crest lines over a water color.
@@ -1243,8 +1357,8 @@ fn flecks(px: f32, pz: f32, tm: f32, dist: f32, dy: f32) -> f32 {
 }
 
 // The mirrored world seen along the ripple-tilted reflected ray.
-fn reflection(p: vec3f, d: vec3f, nx: f32, nz: f32, reach: f32) -> vec4f {
-  if (F.frond2.w < 0.5) { return vec4f(0.0); }
+fn reflection(p: vec3f, d: vec3f, nx: f32, nz: f32, reach: f32, mirrored: bool) -> vec4f {
+  if (F.frond2.w < 0.5 || !mirrored) { return vec4f(0.0); }
   let dn = d.x * nx + d.z * nz;
   let q = vec3f(p.x - 2.0 * d.y * nx * reach, p.y - 2.0 * dn * reach, p.z - 2.0 * d.y * nz * reach);
   let cl = F.mirrorVP * vec4f(q, 1.0);
@@ -1256,13 +1370,17 @@ fn reflection(p: vec3f, d: vec3f, nx: f32, nz: f32, reach: f32) -> vec4f {
 
 fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
   let tm = F.screen.z;
-  let R = ripple(p.x, p.z, tm, false);
+  let pi = poolAt(p.x, p.z);
+  let P = water.pools[pi];
+  // Ripples and flecks as the pool's own place lays them.
+  let o = vec2f(p.x - P.levels.w, p.z - P.tile.w);
+  let R = ripplePool(pi, o.x, o.y, tm);
   var nrm = normalize(vec3f(R.tilt.x, 1.0, R.tilt.y));
   let cosi = max(0.0, -dot(nrm, d));
   // Stylized Fresnel: reflections never swamp the turquoise.
   let fres = 0.04 + 0.58 * powz(1.0 - cosi, 4.0);
   var rc: vec3f;
-  let refl = reflection(p, d, nrm.x, nrm.z, 7.0);
+  let refl = reflection(p, d, nrm.x, nrm.z, 7.0, F.mirrorInfo.x == f32(pi));
   if (refl.w > 0.5) {
     rc = refl.rgb * vec3f(0.8, 0.95, 1.0);
   } else {
@@ -1273,12 +1391,12 @@ fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
   let kk = sqrt(max(0.0, 1.0 - eta * eta * (1.0 - cosi * cosi)));
   var t = normalize(eta * d + (eta * cosi - kk) * nrm);
   if (t.y > -0.02) { t.y = -0.02; }
-  var tHit = (pool.levels.y - p.y) / t.y;
+  var tHit = (P.levels.y - p.y) / t.y;
   var face = 0;
   var fnx = 0.0;
   var fnz = 0.0;
   if (t.x != 0.0) {
-    let tw = (select(pool.rect.x, pool.rect.y, t.x > 0.0) - p.x) / t.x;
+    let tw = (select(P.rect.x, P.rect.y, t.x > 0.0) - p.x) / t.x;
     if (tw > 0.0 && tw < tHit) {
       tHit = tw;
       face = 1;
@@ -1286,7 +1404,7 @@ fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
     }
   }
   if (t.z != 0.0) {
-    let tw = (select(pool.rect.z, pool.rect.w, t.z > 0.0) - p.z) / t.z;
+    let tw = (select(P.rect.z, P.rect.w, t.z > 0.0) - p.z) / t.z;
     if (tw > 0.0 && tw < tHit) {
       tHit = tw;
       face = 2;
@@ -1297,10 +1415,10 @@ fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
   let q = p + t * tHit;
   let fny = select(0.0, 1.0, face == 0);
   if (face == 1) { fnz = 0.0; }
-  var tc = pool.tile.rgb;
+  var tc = P.tile.rgb;
   if (face == 0) {
-    let lane = abs(q.z - (pool.rect.z + pool.rect.w) * 0.5);
-    if (lane < 0.16 && q.x > pool.rect.x + 1.2 && q.x < pool.rect.y - 1.2) { tc = pool.lane.rgb; }
+    let lane = abs(q.z - (P.rect.z + P.rect.w) * 0.5);
+    if (lane < 0.16 && q.x > P.rect.x + 1.2 && q.x < P.rect.y - 1.2) { tc = P.lane.rgb; }
   }
   let L = F.keyDir.xyz;
   let ndl = fnx * L.x + fny * L.y + fnz * L.z;
@@ -1308,16 +1426,16 @@ fn shadeWater(p: vec3f, d: vec3f, dist: f32) -> vec3f {
   let qq = (0.55 + 0.45 * max(0.0, ndl)) * vis;
   var ic = tc * (F.amb.rgb * 0.92 + F.key.rgb * qq);
   if (F.misc.y > 0.0) {
-    let g = F.misc.y * (0.55 + 0.45 * exp(-abs(q.y - pool.levels.y - 0.9) * 0.8));
-    ic += pool.glow.rgb * g;
+    let g = F.misc.y * (0.55 + 0.45 * exp(-abs(q.y - P.levels.y - 0.9) * 0.8));
+    ic += P.glow.rgb * g;
   }
   // Absorption along the path from surface to basin.
   let ab = exp(-tHit * vec3f(0.6, 0.13, 0.075));
-  let wc = pool.water.rgb * (F.amb.rgb + F.key.rgb * 0.6 + vec3f(F.misc.y * 0.7));
+  let wc = P.water.rgb * (F.amb.rgb + F.key.rgb * 0.6 + vec3f(F.misc.y * 0.7));
   ic = ic * ab + wc * (1.0 - ab);
   var w = ic + (rc - ic) * fres;
   if (F.frond2.y > 0.5) {
-    let fl = flecks(p.x, p.z, tm, dist, d.y) * select(0.25 + 0.35 * F.misc.y, 0.85, F.key.w > 0.5);
+    let fl = flecks(o.x, o.y, tm, dist, d.y) * select(0.25 + 0.35 * F.misc.y, 0.85, F.key.w > 0.5);
     w += (vec3f(0.9, 0.97, 1.02) - w) * fl;
   }
   return paintWater(w, dist, F.haze2.w, R);
@@ -1330,19 +1448,34 @@ const ENTRY = /* wgsl */ `
 // Open water: a deep body color that cools with distance, aqua shallows
 // over sand, the mirrored world, a low sun's path, bands and crests.
 fn shadeHarbor(p: vec3f, d: vec3f, dist: f32) -> vec3f {
-  let R = ripple(p.x, p.z, F.screen.z, true);
+  let inHarbor = harborAt(p.x, p.z);
+  // The sea's waves, and inside the breakwater the harbor's own, each laid
+  // from its own place; across the mouth the tilt blends, and the bands
+  // and crests (which cannot) fade out and in again.
+  let tm = F.screen.z;
+  var R = rippleSea(p.x - water.origins.x, p.z - water.origins.y, tm);
+  var strength = 0.7;
+  if (inHarbor > 0.0) {
+    let Rh = rippleHarbor(p.x - water.origins.z, p.z - water.origins.w, tm);
+    let tilt = mix(R.tilt, Rh.tilt, inHarbor);
+    if (inHarbor > 0.5) { R = Rh; }
+    R.tilt = tilt;
+    strength *= abs(2.0 * inHarbor - 1.0);
+  }
   let nrm = normalize(vec3f(R.tilt.x, 1.0, R.tilt.y));
   let cosi = max(0.0, -dot(nrm, d));
   let fres = 0.1 + 0.62 * powz(1.0 - cosi, 3.0);
-  let k = 1.0 - exp(-dist / pool.near.w);
-  var w = pool.near.rgb + (pool.far.rgb - pool.near.rgb) * k;
-  if (pool.far.w > 0.5) {
-    let depth = pool.shallow.x * p.x + pool.shallow.y * p.z - pool.shallow.z;
-    let a = exp(-max(0.0, depth) / pool.shallow.w);
-    w += (pool.shallowColor.rgb - w) * a;
+  let nearC = mix(water.near, water.harborNear, inHarbor);
+  let farC = mix(water.far.rgb, water.harborFar.rgb, inHarbor);
+  let k = 1.0 - exp(-dist / nearC.w);
+  var w = nearC.rgb + (farC - nearC.rgb) * k;
+  if (water.far.w > 0.5) {
+    let c = coastAt(p.z);
+    let a = exp(-max(0.0, c.x - p.x) / water.shallow.x) * c.y;
+    w += (water.shallowColor.rgb - w) * a;
   }
   var b = w * (F.amb.rgb + F.key.rgb * 0.55);
-  let refl = reflection(p, d, nrm.x, nrm.z, 12.0);
+  let refl = reflection(p, d, nrm.x, nrm.z, 12.0, F.mirrorInfo.x < -0.5);
   if (refl.w > 0.5) {
     b += (refl.rgb * vec3f(0.85, 0.95, 1.0) - b) * fres;
   } else {
@@ -1353,14 +1486,16 @@ fn shadeHarbor(p: vec3f, d: vec3f, dist: f32) -> vec3f {
     let c = d.x * sd.x - d.y * sd.y + d.z * sd.z;
     let spread = 0.955 + 0.035 * ss(0.0, 0.5, sd.y);
     if (c > spread) {
-      let nse = valueNoise(p.x * 0.09 + R.phase * 0.08, p.z * 0.9 + p.x * 0.02);
+      let sx = p.x - mix(water.origins.x, water.origins.z, step(0.5, inHarbor));
+      let sz = p.z - mix(water.origins.y, water.origins.w, step(0.5, inHarbor));
+      let nse = valueNoise(sx * 0.09 + R.phase * 0.08, sz * 0.9 + sx * 0.02);
       let dash = ss(0.5, 0.6, nse);
       let kk = dash * ss(spread, 0.999, c) * (1.0 - ss(0.3, 0.55, sd.y));
       let warm = ss(15.0, 0.0, F.sunDir.w);
       b += (vec3f(1.08, mix(1.02, 0.84, warm), mix(0.92, 0.58, warm)) - b) * kk;
     }
   }
-  return paintWater(b, dist, 0.7, R);
+  return paintWater(b, dist, strength, R);
 }
 
 struct VIn {

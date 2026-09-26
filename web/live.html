@@ -178,15 +178,15 @@
 </style>
 </head>
 <body>
-<canvas id="live" aria-label="A place in Paloma Bay, live" role="img"></canvas>
+<canvas id="live" aria-label="Paloma Bay, live" role="img"></canvas>
 <div class="caption" aria-live="polite">
-  <div class="town">Paloma Bay &middot; live</div>
+  <div class="town">Paloma Bay &middot; live<span id="busy"></span></div>
   <div class="where"><span id="place">&nbsp;</span><span class="sep">&middot;</span><span id="clock">&nbsp;</span></div>
 </div>
 <nav class="places" id="places" aria-label="Places"></nav>
 <nav class="corner"><span class="looks" id="looks" role="group" aria-label="Look"></span><a href="index.html" id="stills">Stills</a></nav>
 <div class="day" id="day" aria-label="Time of day"><div id="sun"></div></div>
-<div id="hint"><span class="big keys">Click to walk</span><span class="big touch">Drag to walk and look</span><br><span class="keys"><span><kbd>W A S D</kbd> walk</span> <span><kbd>mouse</kbd> look</span> <span><kbd>shift</kbd> run</span></span><br><span class="keys"><span><kbd>[ ]</kbd> or <kbd>wheel</kbd> the hour</span> <span><kbd>space</kbd> let it pass</span> <span><kbd>L</kbd> another look</span> <span><kbd>1&ndash;5</kbd> another place</span></span><span class="touch">left side to walk, right side to look</span></div>
+<div id="hint"><span class="big keys">Click to walk</span><span class="big touch">Drag to walk and look</span><br><span class="keys"><span><kbd>W A S D</kbd> walk</span> <span><kbd>mouse</kbd> look</span> <span><kbd>shift</kbd> run</span></span><br><span class="keys"><span><kbd>[ ]</kbd> or <kbd>wheel</kbd> the hour</span> <span><kbd>space</kbd> let it pass</span> <span><kbd>L</kbd> another look</span> <span><kbd>1&ndash;5</kbd> go to a place</span></span><span class="touch">left side to walk, right side to look</span></div>
 <div id="nogpu"><div>This part of Paloma Bay is painted live on your graphics chip, which needs a browser with WebGPU: Chrome, Edge, or Safari 26 and later.<br><a href="index.html">The painted town</a> works everywhere.</div></div>
 <script>/*ENGINE*/</script>
 </body>

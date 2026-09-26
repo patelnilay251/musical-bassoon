@@ -14,56 +14,87 @@ import { CAST, DOUBLE, DISTANT } from '../mesh.js';
 export const VERTEX_BYTES = 40;
 export const MATERIAL_FLOATS = 24;
 export const LIGHT_FLOATS = 8;
-export const FRAME_FLOATS = 184;
-export const POOL_FLOATS = 80;
+export const FRAME_FLOATS = 208;
+export const WATER_FLOATS = 240;
 
 // Big triangles (the highway and its painted lines run for kilometers) are
-// cut into pieces at most MAX_EDGE long where they pass through `zone`,
-// the part of a place a camera can be. Across a triangle that size a GPU
-// sets up depth too coarsely where it passes the camera, and lines laid
-// a centimeter above the asphalt sink under it.
+// cut along a grid of GRID-meter squares where they pass through `zone`,
+// the part of a place (or of the town) a camera can be. Across a triangle
+// that size a GPU sets up depth too coarsely where it passes the camera,
+// and lines laid a centimeter above the asphalt sink under it. Every big
+// triangle is cut on the same lines, so neighbors still meet corner to
+// corner.
 const MAX_EDGE = 40;
+const GRID = 28;
 const MARGIN = 150;
 
 // `paneOf` (from packPanes) rides in the top half of each triangle's
-// object id: the pane of glass it belongs to, counted from 1.
-export function packMesh(mesh, zone = null, paneOf = null) {
+// object id: the pane of glass it belongs to, counted from 1. With `bin`,
+// the triangles are laid out square by square of ground (`bin` meters on
+// a side), each run in `parts` with its bounds, so a renderer can leave
+// out what a camera cannot see; the open water (materials in `sea`) in
+// runs of its own, marked, so it knows whether any is in view.
+export function packMesh(mesh, zone = null, paneOf = null, { bin = 0, sea = null } = {}) {
   const out = [];
-  const near = (P) => {
-    if (!zone) return true;
-    for (let c = 0; c < 3; c += 2) {
-      const lo = Math.min(P[0][c], P[1][c], P[2][c]);
-      const hi = Math.max(P[0][c], P[1][c], P[2][c]);
-      if (hi < zone.min[c] - MARGIN || lo > zone.max[c] + MARGIN) return false;
+  const Z = zone ? [zone.min[0] - MARGIN, zone.max[0] + MARGIN, zone.min[2] - MARGIN, zone.max[2] + MARGIN] : [-Infinity, Infinity, -Infinity, Infinity];
+  const emit = (poly, ids, obj) => {
+    for (let k = 1; k + 1 < poly.length; k++) {
+      const V = [poly[0], poly[k], poly[k + 1]];
+      out.push(
+        V.map((v) => v.p),
+        V.map((v) => v.n),
+        V.map((v) => v.t),
+        ids,
+        obj,
+      );
     }
-    return true;
   };
   const tri = (P, N, T, ids, obj) => {
-    let k = 0;
-    let best = -1;
+    let best = 0;
     for (let e = 0; e < 3; e++) {
       const a = P[e];
       const b = P[(e + 1) % 3];
-      const l = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      if (l > best) {
-        best = l;
-        k = e;
-      }
+      best = Math.max(best, Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
     }
-    if (best > MAX_EDGE && !((ids >>> 16) & DISTANT) && near(P)) {
-      // Halve the longest edge.
-      const i = k;
-      const j = (k + 1) % 3;
-      const o = (k + 2) % 3;
-      const mid = (A, B) => A.map((v, c) => (v + B[c]) / 2);
-      const pm = mid(P[i], P[j]);
-      const nm = mid(N[i], N[j]);
-      const tm = mid(T[i], T[j]);
-      tri([P[i], pm, P[o]], [N[i], nm, N[o]], [T[i], tm, T[o]], ids, obj);
-      tri([pm, P[j], P[o]], [nm, N[j], N[o]], [tm, T[j], T[o]], ids, obj);
+    if (best <= MAX_EDGE || (ids >>> 16) & DISTANT) {
+      out.push(P, N, T, ids, obj);
       return;
     }
-    out.push(P, N, T, ids, obj);
+    // What lies outside the zone stays in big pieces; what lies in it is
+    // cut square by square.
+    let poly = [0, 1, 2].map((k) => ({ p: P[k], n: N[k], t: T[k] }));
+    for (const [axis, v, keep] of [
+      [0, Z[0], 1],
+      [0, Z[1], -1],
+      [2, Z[2], 1],
+      [2, Z[3], -1],
+    ]) {
+      if (!Number.isFinite(v)) continue;
+      const [inside, outside] = split(poly, axis, v, keep);
+      if (outside.length >= 3) emit(outside, ids, obj);
+      poly = inside;
+      if (poly.length < 3) return;
+    }
+    let xa = Infinity;
+    let xb = -Infinity;
+    for (const v of poly) {
+      xa = Math.min(xa, v.p[0]);
+      xb = Math.max(xb, v.p[0]);
+    }
+    for (let i = Math.floor(xa / GRID); i * GRID < xb; i++) {
+      const col = split(split(poly, 0, i * GRID, 1)[0], 0, (i + 1) * GRID, -1)[0];
+      if (col.length < 3) continue;
+      let za = Infinity;
+      let zb = -Infinity;
+      for (const v of col) {
+        za = Math.min(za, v.p[2]);
+        zb = Math.max(zb, v.p[2]);
+      }
+      for (let j = Math.floor(za / GRID); j * GRID < zb; j++) {
+        const sq = split(split(col, 2, j * GRID, 1)[0], 2, (j + 1) * GRID, -1)[0];
+        if (sq.length >= 3) emit(sq, ids, obj);
+      }
+    }
   };
   for (let t = 0; t < mesh.count; t++) {
     const P = [0, 1, 2].map((k) => [mesh.pos[t * 9 + k * 3], mesh.pos[t * 9 + k * 3 + 1], mesh.pos[t * 9 + k * 3 + 2]]);
@@ -74,11 +105,43 @@ export function packMesh(mesh, zone = null, paneOf = null) {
   }
   // One-sided triangles first, then two-sided ones: the painter culls the
   // back faces of all but the two-sided (raster.js), and so will the GPU.
+  // Within each, square by square; what spans many squares (the sea to the
+  // horizon) goes in a square of its own.
   const tris = out.length / 5;
-  const order = [];
-  for (let t = 0; t < tris; t++) if (!((out[t * 5 + 3] >>> 16) & DOUBLE)) order.push(t);
-  const single = order.length;
-  for (let t = 0; t < tris; t++) if ((out[t * 5 + 3] >>> 16) & DOUBLE) order.push(t);
+  const key = new Float64Array(tris);
+  for (let t = 0; t < tris; t++) {
+    const P = out[t * 5];
+    const dbl = (out[t * 5 + 3] >>> 16) & DOUBLE ? 1 : 0;
+    let k = 0;
+    if (bin > 0) {
+      const x0 = Math.min(P[0][0], P[1][0], P[2][0]);
+      const x1 = Math.max(P[0][0], P[1][0], P[2][0]);
+      const z0 = Math.min(P[0][2], P[1][2], P[2][2]);
+      const z1 = Math.max(P[0][2], P[1][2], P[2][2]);
+      k = x1 - x0 > bin * 2 || z1 - z0 > bin * 2 ? -1 : (Math.floor((x0 + x1) / 2 / bin) + 32768) * 65536 + Math.floor((z0 + z1) / 2 / bin) + 32768;
+    }
+    const wet = sea && sea.has(out[t * 5 + 3] & 0xffff) ? 1 : 0;
+    key[t] = dbl * 2 ** 41 + wet * 2 ** 40 + k;
+  }
+  const order = Array.from({ length: tris }, (_, t) => t).sort((a, b) => key[a] - key[b] || a - b);
+  let single = 0;
+  while (single < tris && !((out[order[single] * 5 + 3] >>> 16) & DOUBLE)) single++;
+  const parts = [];
+  for (let i = 0; i < tris; i++) {
+    const t = order[i];
+    let part = parts[parts.length - 1];
+    if (!part || part.key !== key[t]) {
+      const wet = Boolean(sea && sea.has(out[t * 5 + 3] & 0xffff));
+      parts.push((part = { key: key[t], first: i * 3, count: 0, double: i >= single, sea: wet, box: { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] } }));
+    }
+    part.count += 3;
+    for (const v of out[t * 5]) {
+      for (let c = 0; c < 3; c++) {
+        if (v[c] < part.box.min[c]) part.box.min[c] = v[c];
+        if (v[c] > part.box.max[c]) part.box.max[c] = v[c];
+      }
+    }
+  }
   const n = tris * 3;
   const buf = new ArrayBuffer(n * VERTEX_BYTES);
   const f = new Float32Array(buf);
@@ -100,7 +163,33 @@ export function packMesh(mesh, zone = null, paneOf = null) {
       u[o + 9] = obj;
     }
   }
-  return { data: buf, count: n, single: single * 3 };
+  return { data: buf, count: n, single: single * 3, parts: parts.map(({ key: _, ...p }) => p) };
+}
+
+// A convex polygon of { p, n, t } corners cut by the plane where coordinate
+// `axis` is v: [the part on the `keep` side (+1: above v), the rest], with
+// normals and texture coordinates carried along the cut.
+function split(poly, axis, v, keep) {
+  const a = [];
+  const b = [];
+  for (let k = 0; k < poly.length; k++) {
+    const P = poly[k];
+    const Q = poly[(k + 1) % poly.length];
+    const dp = (P.p[axis] - v) * keep;
+    const dq = (Q.p[axis] - v) * keep;
+    (dp >= 0 ? a : b).push(P);
+    if (dp >= 0 !== dq >= 0) {
+      const s = dp / (dp - dq);
+      const mix = (x, y) => x.map((c, i) => c + (y[i] - c) * s);
+      const p = mix(P.p, Q.p);
+      // Exactly on the line, whichever side it was reached from.
+      p[axis] = v;
+      const cut = { p, n: mix(P.n, Q.n), t: mix(P.t, Q.t) };
+      a.push(cut);
+      b.push(cut);
+    }
+  }
+  return [a, b];
 }
 
 // Panes of glass a walker can look into (wgsl.js interior()): the upright
@@ -154,7 +243,8 @@ export function packPanes(world) {
     if (n > 0xffff) break;
     for (const t of g.tris) paneOf[t] = n;
     // What is inside: a motel room, a shop on the boulevard, or a lounge.
-    const style = world.materials[mesh.mat[g.tris[0]]].name === 'roomGlass' ? 0 : world.id === 'boulevard' ? 1 : 2;
+    const mat = world.materials[mesh.mat[g.tris[0]]];
+    const style = mat.name === 'roomGlass' ? 0 : (mat.place ?? world.id) === 'boulevard' ? 1 : 2;
     // Last, how far along its normal the pane's plane lies.
     data.push(a0, a1, y0, y1, nx, nz, style, w / (g.tris.length * 3));
   }
@@ -218,7 +308,7 @@ export function packMaterials(world) {
     u[o + 7] = PATTERN[m.pattern ?? 'none'];
     f.set(e, o + 8);
     f[o + 11] = m.scale ?? 1;
-    f[o + 12] = power[m.name] ?? 1;
+    f[o + 12] = m.power ?? power[m.name] ?? 1;
     u[o + 13] = m.ao ? 1 : 0;
     u[o + 14] = m.curtains ? 1 : 0;
     u[o + 15] = m.switched ? 1 : 0;
@@ -230,13 +320,14 @@ export function packMaterials(world) {
       lanes.push(...m.lanes.centers);
     }
     u[o + 20] = DETAIL[DETAIL_OF[m.name] ?? 'none'];
+    // In the town, where the material's place stands (town.js).
+    if (m.origin) f.set(m.origin, o + 21);
   });
   return { data: buf, count: mats.length, lanes: Float32Array.from(lanes.length ? lanes : [0]) };
 }
 
 // Pools of lamplight, each dimmed or not by the power to its material.
-export function packLights(world) {
-  const list = world.lights ?? [];
+export function packLights(world, list = world.lights ?? []) {
   const power = world.emitScale ?? {};
   const f = new Float32Array(Math.max(1, list.length) * LIGHT_FLOATS);
   list.forEach((L, i) => {
@@ -247,6 +338,56 @@ export function packLights(world) {
     f[o + 7] = L.k * (L.emit && power[L.emit] !== undefined ? power[L.emit] : 1);
   });
   return { data: f, count: list.length };
+}
+
+// Which lamps can light where: the ground cut into squares `cell` meters
+// on a side, each listing the lamps (by their place in packLights' list)
+// whose light can fall in it. A lamp lights nothing farther than four of
+// its radii (wgsl.js), so every point sees exactly the lamps it would if
+// it asked them all. Laid out as u32s: x0, z0, cell (as f32 bits), the
+// squares across and down, three spare; each square's first index and
+// count; then the indices.
+export const LAMP_CELL = 16;
+
+export function packLampGrid(list = [], cell = LAMP_CELL) {
+  if (!list.length) return new Uint32Array(8 + 2);
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (const L of list) {
+    const r = L.r * 4;
+    x0 = Math.min(x0, L.p[0] - r);
+    z0 = Math.min(z0, L.p[2] - r);
+    x1 = Math.max(x1, L.p[0] + r);
+    z1 = Math.max(z1, L.p[2] + r);
+  }
+  const nx = Math.max(1, Math.ceil((x1 - x0) / cell));
+  const nz = Math.max(1, Math.ceil((z1 - z0) / cell));
+  const cells = Array.from({ length: nx * nz }, () => []);
+  list.forEach((L, k) => {
+    const r = L.r * 4;
+    const i0 = Math.max(0, Math.floor((L.p[0] - r - x0) / cell));
+    const i1 = Math.min(nx - 1, Math.floor((L.p[0] + r - x0) / cell));
+    const j0 = Math.max(0, Math.floor((L.p[2] - r - z0) / cell));
+    const j1 = Math.min(nz - 1, Math.floor((L.p[2] + r - z0) / cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) cells[j * nx + i].push(k);
+  });
+  const total = cells.reduce((n, c) => n + c.length, 0);
+  const u = new Uint32Array(8 + nx * nz * 2 + total);
+  const f = new Float32Array(u.buffer);
+  f[0] = x0;
+  f[1] = z0;
+  f[2] = cell;
+  u[3] = nx;
+  u[4] = nz;
+  let at = 8 + nx * nz * 2;
+  cells.forEach((c, i) => {
+    u[8 + i * 2] = at;
+    u[8 + i * 2 + 1] = c.length;
+    for (const k of c) u[at++] = k;
+  });
+  return u;
 }
 
 // The sky's cast: clouds (with their puffs), streaks and gulls.
@@ -276,33 +417,66 @@ export function packSky(sky = {}) {
   return f;
 }
 
-// A place's water: its pool, if it has one, and its open water (a harbor,
-// the sea off the beach), if it has that.
-export function packPool(pool, water = null) {
-  const f = new Float32Array(POOL_FLOATS);
-  if (pool) {
-    f.set([pool.x0, pool.x1, pool.z0, pool.z1], 0);
-    f.set([pool.waterY, pool.floorY, Math.min(4, pool.waves.length)], 4);
-    f.set(pool.tile, 8);
-    f.set(pool.lane, 12);
-    f.set(pool.water, 16);
-    f.set(pool.glow, 20);
-    pool.waves.slice(0, 4).forEach((w, i) => {
-      f.set([w.kx, w.kz, w.w, w.p], 24 + i * 4);
-      f[40 + i] = w.a;
+// A place's water: its pools, if it has any, and its open water (a harbor,
+// the sea off the beach), if it has that. In the town the sea's waves are
+// the beach's and the harbor's the marina's, each laid from its place's
+// origin, as a pool's are.
+export function packWater(world) {
+  const f = new Float32Array(WATER_FLOATS);
+  const pools = (world.pools ?? (world.pool ? [world.pool] : [])).slice(0, 2);
+  pools.forEach((pool, i) => {
+    const o = i * 44;
+    const [ox, oz] = pool.origin ?? [0, 0];
+    f.set([pool.x0, pool.x1, pool.z0, pool.z1], o);
+    f.set([pool.waterY, pool.floorY, Math.min(4, pool.waves.length), ox], o + 4);
+    f.set([...pool.tile.slice(0, 3), oz], o + 8);
+    f.set(pool.lane, o + 12);
+    f.set(pool.water, o + 16);
+    f.set(pool.glow, o + 20);
+    pool.waves.slice(0, 4).forEach((w, k) => {
+      f.set([w.kx, w.kz, w.w, w.p], o + 24 + k * 4);
+      f[o + 40 + k] = w.a;
     });
-  }
+  });
+  f[88] = pools.length;
+  // No harbor unless there is one: an empty rectangle.
+  f.set([1e9, -1e9, 1e9, -1e9], 128);
+  f.set([1, 0, 0, 0], 132);
+  const water = world.water;
   if (water) {
-    f[7] = Math.min(4, water.waves.length);
-    water.waves.slice(0, 4).forEach((w, i) => {
-      f.set([w.kx, w.kz, w.w, w.p], 44 + i * 4);
-      f[60 + i] = w.a;
-    });
-    f.set([...water.near, water.falloff ?? 160], 64);
-    f.set([...water.far, water.shallow ? 1 : 0], 68);
+    const waves = (list, at, amps) =>
+      list.slice(0, 4).forEach((w, k) => {
+        f.set([w.kx, w.kz, w.w, w.p], at + k * 4);
+        f[amps + k] = w.a;
+      });
+    f[90] = Math.min(4, water.waves.length);
+    waves(water.waves, 92, 108);
+    f.set([...water.near, water.falloff ?? 160], 112);
+    f.set([...water.far, water.shallow ? 1 : 0], 116);
+    f.set([...water.near, water.falloff ?? 160], 136);
+    f.set([...water.far, 0], 140);
+    f.set([...(water.origin ?? [0, 0]), 0, 0], 228);
     if (water.shallow) {
-      f.set([water.shallow.a[0], water.shallow.a[1], water.shallow.d, water.shallow.w], 72);
-      f.set([...water.shallow.color, 0], 76);
+      // The waterline, point by point; a place's straight shallows line
+      // (the beach's, along x = -d) as two.
+      const coast = water.coast ?? [
+        [-1e6, -water.shallow.d, 1],
+        [1e6, -water.shallow.d, 1],
+      ];
+      f[120] = water.shallow.w;
+      f[122] = Math.min(16, coast.length);
+      f.set([...water.shallow.color, 0], 124);
+      coast.slice(0, 16).forEach(([z, x, sand], k) => f.set([z, x, sand, 0], 144 + k * 4));
+    }
+    const H = water.harbor;
+    if (H) {
+      f.set([H.x0, H.x1, H.z0, H.z1], 128);
+      f.set([H.edge, 0, 0, 0], 132);
+      f.set([...H.near, H.falloff ?? 260], 136);
+      f.set([...H.far, 0], 140);
+      waves(H.waves, 208, 224);
+      f.set(H.origin ?? [0, 0], 230);
+      f[232] = Math.min(4, H.waves.length);
     }
   }
   return f;
@@ -444,7 +618,7 @@ export function nearShadowMatrix(S, box, center, size, mapSize) {
  * cam = { eye, target, fovY, shift }, W x H the target, S = skyState(),
  * shadow = shadowMatrix() and its map size, and a few switches.
  */
-export function packFrame({ cam, W, H, S, look, shadow, shadowSize, near = null, nearSize = 1, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle, mirrorY = 0, reflRect = [0, 0, 1, 1] }) {
+export function packFrame({ cam, W, H, S, look, shadow, shadowSize, near = null, nearSize = 1, mid = null, midSize = 1, rippleT, starT = -1, lightCount, hasPool, mirror = false, reflection = false, mirrorVP = null, seaLevel = SEA_LEVEL, pixelAngle, mirrorY = 0, reflRect = [0, 0, 1, 1], mirrored = -1 }) {
   const L = lookOf(look);
   const f = new Float32Array(FRAME_FLOATS);
   const eye = cam.eye;
@@ -494,7 +668,38 @@ export function packFrame({ cam, W, H, S, look, shadow, shadowSize, near = null,
     f.set(near.m, 164);
     f.set([near.texel / nearSize, 1, 0.015 * near.depthScale, 1 / nearSize], 180);
   }
+  if (shadow && mid) {
+    f.set(mid.m, 184);
+    f.set([mid.texel / midSize, 1, 0.015 * mid.depthScale, 1 / midSize], 200);
+  }
+  // Which water the mirrored pass painted: a pool's index, or -1 the sea.
+  f[204] = mirrored;
   return f;
+}
+
+// Could any of the box be inside the frame of this view-projection (or a
+// shadow map's), or inside `rect` of it ([x0, x1, y0, y1] in -1..1)? Only
+// boxes wholly beyond one side are left out.
+export function boxInView(vp, b, rect = [-1, 1, -1, 1]) {
+  let left = 0;
+  let right = 0;
+  let below = 0;
+  let above = 0;
+  let behind = 0;
+  for (let i = 0; i < 8; i++) {
+    const x = i & 1 ? b.max[0] : b.min[0];
+    const y = i & 2 ? b.max[1] : b.min[1];
+    const z = i & 4 ? b.max[2] : b.min[2];
+    const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12];
+    const cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
+    const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+    if (cx < rect[0] * cw) left++;
+    if (cx > rect[1] * cw) right++;
+    if (cy < rect[2] * cw) below++;
+    if (cy > rect[3] * cw) above++;
+    if (cw < 0.05) behind++;
+  }
+  return left < 8 && right < 8 && below < 8 && above < 8 && behind < 8;
 }
 
 // The camera mirrored in a horizontal plane at height h.

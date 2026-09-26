@@ -28,6 +28,7 @@ const SLOPE = 0.035;
 const WALL = 72; // the promenade's sea wall
 const PROM = WALL * SLOPE + 0.9; // promenade level
 const Z = 3000; // the beach runs on out of sight both ways
+const STEPS = [-40, 30, 110]; // flights down to the sand, 2.4 m wide
 const FAR = 25000;
 const PIER = -95;
 
@@ -87,7 +88,7 @@ export function build(props = {}, look = lookOf()) {
   b.use(M.rail, CAST);
   for (let z = -300; z <= 300; z += 2.4) b.box(WALL - 0.24, PROM + 0.08, z - 0.03, WALL - 0.16, PROM + 1.03, z + 0.03);
   // Steps down to the sand every so often.
-  for (const zs of [-40, 30, 110]) {
+  for (const zs of STEPS) {
     b.use(M.trim, CAST);
     for (let i = 0; i < 6; i++) {
       const x = WALL - 0.4 - i * 0.32;
@@ -253,7 +254,7 @@ export function build(props = {}, look = lookOf()) {
     },
     lights,
     shadowBox: { min: [-120, -3, -110], max: [WALL + 45, 24, 95] },
-    layout: { tower: { ...T, ...tower }, spot, pier: PIER, palms },
+    layout: { tower: { ...T, ...tower }, spot, pier: PIER, palms, steps: { x: WALL, y: PROM, z: STEPS, half: 1.2 } },
     views: {
       tower: level([4, sandY(4) + 1.6, 7.5], 83, 30, 0.3),
       sunset: level([50, sandY(50) + 1.6, 0.5], 284, 36, 0.42),
