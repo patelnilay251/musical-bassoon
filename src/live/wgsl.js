@@ -533,8 +533,8 @@ fn pattern(pat: u32, m: u32, p: vec3f, uv: vec2f, dist: f32, d: vec3f) -> f32 {
 // sprayed stucco, the stones in the asphalt and its sealed cracks, the
 // speckle of concrete, fibers up a palm trunk, sand, the grain of planks,
 // blades of grass. Every octave fades before a pixel is a third of its
-// size, and all of it is gone by thirty meters, where the painted views
-// are taken from.
+// size, and all of it is gone by twenty meters, so the painted views keep
+// the painter's flat colors.
 const D_STUCCO = 1u;
 const D_ASPHALT = 2u;
 const D_CONCRETE = 3u;
@@ -603,7 +603,7 @@ fn detail(m: u32, p: vec3f, n: vec3f, uv: vec2f, dist: f32, foot: f32) -> f32 {
   let M = mats[m];
   let D = M.detail;
   if (D == 0u) { return 1.0; }
-  let near = 1.0 - ss(14.0, 30.0, dist);
+  let near = 1.0 - ss(8.0, 20.0, dist);
   if (near <= 0.0) { return 1.0; }
   // The face's own plane: along and up a wall, or the ground's x and z.
   var q = p.xz;
@@ -937,7 +937,9 @@ fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
   // reflection does: it lightens (the bands of sky flare across the room)
   // and never darkens. Glancing, the glass is all reflection again.
   if (pane > 0u && F.skyLook2.w < 0.5) {
-    let vis = 1.0 - ss(9.0, 22.0, length(p - F.eye.xyz));
+    // Only close to: from where the painted views are taken, glass is
+    // the painter's glass.
+    let vis = 1.0 - ss(6.0, 14.0, length(p - F.eye.xyz));
     if (vis > 0.0) {
       let inside = interior(pane - 1u, obj, p, d, on, M.emit);
       let fr = 0.18 + 0.82 * powz(1.0 - c, 4.0);
@@ -975,7 +977,7 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       // at once (the painter switches it on at once), so a face the sun
       // barely touches carries no shadow a map could render in teeth.
       let ndl = dot(fnorm, L);
-      let lit3 = select(select(0.66 * ss(0.0, 0.12, ndl), 0.84, ndl > 0.18), 1.0, ndl > 0.5);
+      let lit3 = select(select(0.66 * ss(0.0, 0.05, ndl), 0.84, ndl > 0.18), 1.0, ndl > 0.5);
       let hf = 0.5 + 0.5 * fnorm.y;
       let Af = F.ground.rgb + (F.amb.rgb - F.ground.rgb) * hf;
       var sh: vec3f;

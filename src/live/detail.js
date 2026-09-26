@@ -149,27 +149,135 @@ function door(b, f, brass, plate, ink, number) {
   }
 }
 
-// Mullions across a shop's or a lounge's wide panes, and a transom where
-// a pane stands taller than a door.
+// Mullions across a shop's or a lounge's wide sheets of glass, and a
+// transom where a sheet stands taller than a door. A pane (as the rooms
+// behind it see it) may be several sheets, or one sheet the building's
+// own frames stand in front of, like the diner's window band: only a run
+// of glass with no gap and no frame across it gets bars.
 function mullions(b, world, frame) {
-  const { data, count } = packPanes(world);
+  const { data, count, paneOf } = packPanes(world);
+  const mesh = world.mesh;
+  const spans = Array.from({ length: count }, () => []);
+  const along = (i, x, z) => -data[i * PANE_FLOATS + 5] * x + data[i * PANE_FLOATS + 4] * z;
+  for (let t = 0; t < mesh.count; t++) {
+    const i = paneOf[t] - 1;
+    if (i < 0) continue;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < 3; k++) {
+      const a = along(i, mesh.pos[t * 9 + k * 3], mesh.pos[t * 9 + k * 3 + 2]);
+      lo = Math.min(lo, a);
+      hi = Math.max(hi, a);
+    }
+    spans[i].push([lo, hi]);
+  }
+  const standing = framesOn(world, data, count, paneOf);
   b.use(frame, CAST);
   for (let i = 0; i < count; i++) {
-    const [a0, a1, y0, y1, nx, nz, style, w] = data.subarray(i * PANE_FLOATS, (i + 1) * PANE_FLOATS);
+    const [, , y0, y1, nx, nz, style, w] = data.subarray(i * PANE_FLOATS, (i + 1) * PANE_FLOATS);
     if (style === 0) continue; // motel rooms have their own
-    const W = a1 - a0;
     const H = y1 - y0;
     const bay = style === 1 ? 1.8 : 2.4;
-    if (W < bay * 1.2 || H < 1.5) continue;
+    if (H < 1.5) continue;
     const f = { nx, nz, w };
-    b.object();
-    const n = Math.ceil(W / bay);
-    for (let k = 1; k < n; k++) {
-      const a = a0 + (k * W) / n;
-      faceBox(b, f, a - 0.025, y0, a + 0.025, y1, -0.02, 0.02);
+    for (const [a0, a1] of split(runs(spans[i]), standing[i])) {
+      const W = a1 - a0;
+      if (W < bay * 1.2) continue;
+      b.object();
+      const n = Math.ceil(W / bay);
+      for (let k = 1; k < n; k++) {
+        const a = a0 + (k * W) / n;
+        faceBox(b, f, a - 0.025, y0, a + 0.025, y1, -0.02, 0.02);
+      }
+      if (H > 2.9) faceBox(b, f, a0, y0 + 2.3, a1, y0 + 2.35, -0.02, 0.02);
     }
-    if (H > 2.9) faceBox(b, f, a0, y0 + 2.3, a1, y0 + 2.35, -0.02, 0.02);
   }
+}
+
+// Where the building's own frames already stand across each pane: slim
+// upright members of anything but glass, close in front of it (or behind),
+// running most of its height. Returns, per pane, their places along it.
+function framesOn(world, data, count, paneOf) {
+  const mesh = world.mesh;
+  const CELL = 2;
+  const grid = new Map();
+  const key = (i, j) => i * 100003 + j;
+  for (let t = 0; t < mesh.count; t++) {
+    if (paneOf[t] || Math.abs(mesh.fn[t * 3 + 1]) > 0.2) continue;
+    const x = (mesh.pos[t * 9] + mesh.pos[t * 9 + 3] + mesh.pos[t * 9 + 6]) / 3;
+    const z = (mesh.pos[t * 9 + 2] + mesh.pos[t * 9 + 5] + mesh.pos[t * 9 + 8]) / 3;
+    const k = key(Math.floor(x / CELL), Math.floor(z / CELL));
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(t);
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const [a0, a1, y0, y1, nx, nz, , w] = data.subarray(i * PANE_FLOATS, (i + 1) * PANE_FLOATS);
+    const found = [];
+    // The cells along the pane's foot.
+    const seen = new Set();
+    for (let a = a0 - 1; a <= a1 + 1; a += CELL / 2) {
+      const x = -nz * a + nx * w;
+      const z = nx * a + nz * w;
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const k = key(Math.floor(x / CELL) + di, Math.floor(z / CELL) + dj);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          for (const t of grid.get(k) ?? []) {
+            let alo = Infinity;
+            let ahi = -Infinity;
+            let ylo = Infinity;
+            let yhi = -Infinity;
+            let off = 0;
+            for (let v = 0; v < 3; v++) {
+              const px = mesh.pos[t * 9 + v * 3];
+              const py = mesh.pos[t * 9 + v * 3 + 1];
+              const pz = mesh.pos[t * 9 + v * 3 + 2];
+              const a = -nz * px + nx * pz;
+              alo = Math.min(alo, a);
+              ahi = Math.max(ahi, a);
+              ylo = Math.min(ylo, py);
+              yhi = Math.max(yhi, py);
+              off = Math.max(off, Math.abs(nx * px + nz * pz - w));
+            }
+            if (off > 0.15 || ahi < a0 || alo > a1 || ahi - alo > 0.3) continue;
+            if (Math.min(yhi, y1) - Math.max(ylo, y0) < 0.5 * (y1 - y0)) continue;
+            found.push((alo + ahi) / 2);
+          }
+        }
+      }
+    }
+    out.push(found);
+  }
+  return out;
+}
+
+// Runs cut wherever a frame already stands.
+function split(list, at) {
+  const out = [];
+  for (const [a0, a1] of list) {
+    const cuts = at.filter((a) => a > a0 + 0.05 && a < a1 - 0.05).sort((p, q) => p - q);
+    let s = a0;
+    for (const c of cuts) {
+      if (c - s > 0.05) out.push([s, c]);
+      s = c;
+    }
+    out.push([s, a1]);
+  }
+  return out;
+}
+
+// Stretches along a face that its triangles cover without a gap.
+function runs(spans) {
+  spans.sort((p, q) => p[0] - q[0]);
+  const out = [];
+  for (const [lo, hi] of spans) {
+    const last = out[out.length - 1];
+    if (last && lo <= last[1] + 0.01) last[1] = Math.max(last[1], hi);
+    else out.push([lo, hi]);
+  }
+  return out;
 }
 
 // Two finished meshes as one.

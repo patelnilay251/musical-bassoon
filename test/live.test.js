@@ -137,6 +137,12 @@ test('the live town adds door hardware and mullions, and leaves the painted worl
   let bars = 0;
   for (let t = boulevard.mesh.count; t < shops.mesh.count; t++) if (shops.mesh.mat[t] === frame) bars++;
   assert.ok(bars > 100, `${bars} mullion triangles`);
+  // Glass that stands behind frames of its own (the beach's hotels) gets
+  // no more.
+  const beach = buildPlace('beach', propsAt('beach', 16.2), 'cobalt');
+  const hotels = addDetail(beach);
+  const beachFrame = hotels.materials.findIndex((m) => m.name === 'frame');
+  for (let t = beach.mesh.count; t < hotels.mesh.count; t++) assert.notEqual(hotels.mesh.mat[t], beachFrame);
   // And a walker can still walk the motel with its knobs on.
   const W = buildWalk(lived);
   let p = standAt(W, -1, motel.layout.block.z0 - 6);

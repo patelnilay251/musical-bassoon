@@ -85,7 +85,7 @@ The first version rendered a resort. This one tries to paint a town, the way an 
 
 ## Walking the town
 
-The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain. A live frame and a painted one of the same view are within a level or two of 255 on average, apart from the edges of things.
+The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain. A live frame and a painted one of the same view are within one to three levels of 255 on average, apart from the edges of things.
 
 - **The camera stays level**, as in the paintings. Looking up or down slides the frame, like the rising front of a view camera, so the motel's posts and the palms stay vertical.
 - **Walking** (`src/live/walk.js`) reads the place's own triangles into a grid of 25 cm cells (a little coarser on the long boulevard): where the floors are, what stands in the way, and where the water is. You can step up a curb, climb a stair or a gangway, but not walk through a wall, and you never stand below the water. Each walk starts where the place's hero picture is taken. The marina is the exception: its hero picture is taken from the yacht club's terrace, which has no stairs down, so the walk starts at the end of a dock.
@@ -94,9 +94,9 @@ The painted town makes one picture at a time on the processor. The live town (`s
 
 ### Up close
 
-A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town: the shaders' additions fade out by thirty meters, and the geometry is added to a finished world (`src/live/detail.js`), never built into it.
+A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town. The shaders' additions fade out within twenty meters (the rooms behind the glass within fourteen), so from where the painted views are taken the live town still looks like them. The geometry is added to a finished world (`src/live/detail.js`), never built into it.
 
-- **A second shadow map follows the walker.** It is 40 m across at a centimeter a texel, read with nine taps. The whole-box map is ten centimeters a texel on the boulevard. Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first few degrees, so a low sun along a wall doesn't paint it in teeth.
+- **A second shadow map follows the walker.** It is 40 m across at a centimeter a texel, read with nine taps. The whole-box map is ten centimeters a texel on the boulevard. Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first three degrees, so a low sun along a wall doesn't paint it in teeth.
 - **Grain, by material:**
   - sprayed stucco on the walls;
   - stones in the asphalt, with sealed cracks that wander;
@@ -114,7 +114,7 @@ A painting never has to show what a walker sees at arm's length, so the live tow
   - Elsewhere there is a sofa and a picture of the sea.
 
   By day the painted glass lies over the room as a reflection would, and lightens it. After dark the lit rooms glow, and their lamps light what is in them.
-- **Hardware and framing.** The motel doors have brass knobs, kick plates and room numbers, 101 up along the ground floor and 201 up along the walkway, lettered in the town's sign font. The big panes of the shops and lounges are framed with mullions and transoms.
+- **Hardware and framing.** The motel doors have brass knobs, kick plates and room numbers, 101 up along the ground floor and 201 up along the walkway, lettered in the town's sign font. The big panes of the shops are framed with mullions and transoms, except where the building already has frames of its own, like the diner's window band.
 
 ## How it works
 
