@@ -6,6 +6,7 @@ import { Renderer, KIND } from '../src/render.js';
 import { skyState } from '../src/sky.js';
 import { packMesh, packMaterials, packShades, packFrame, packPanes, shadowMatrix, nearShadowMatrix, DETAIL, PANE_FLOATS, VERTEX_BYTES, MATERIAL_FLOATS, FRAME_FLOATS } from '../src/live/pack.js';
 import { buildWalk, walk, standAt, floorAt, WALKER } from '../src/live/walk.js';
+import { addDetail } from '../src/live/detail.js';
 import { SCENE_WGSL, POST_WGSL } from '../src/live/wgsl.js';
 
 const motel = buildPlace('motel', propsAt('motel', 16.2), 'cobalt');
@@ -105,6 +106,42 @@ test('every pane a walker can look into is upright glass of a building, with its
   assert.equal(style(motel, 'roomGlass'), 0);
   assert.equal(style(boulevard, 'glass'), 1);
   assert.equal(style(motel, 'glass'), 2);
+});
+
+test('the live town adds door hardware and mullions, and leaves the painted world as it was', () => {
+  const before = Float64Array.from(motel.mesh.pos);
+  const lived = addDetail(motel);
+  // The painted world is untouched: the same mesh, the same materials.
+  assert.deepEqual(motel.mesh.pos, before);
+  assert.ok(!motel.materials.some((m) => m.name === 'brass'));
+  assert.ok(lived.mesh.count > motel.mesh.count);
+  assert.deepEqual(lived.mesh.pos.subarray(0, before.length), before);
+  // Every motel door gets a brass knob; the new triangles are objects of
+  // their own, never one of the world's.
+  const brass = lived.materials.findIndex((m) => m.name === 'brass');
+  assert.equal(lived.materials[brass].kind, 'paint');
+  const doors = new Set();
+  for (let t = 0; t < motel.mesh.count; t++) if (/^door/.test(motel.materials[motel.mesh.mat[t]].name)) doors.add(motel.mesh.obj[t]);
+  const topObj = Math.max(...motel.mesh.obj);
+  let knobs = 0;
+  for (let t = motel.mesh.count; t < lived.mesh.count; t++) {
+    assert.ok(lived.mesh.obj[t] > topObj);
+    if (lived.mesh.mat[t] === brass) knobs++;
+  }
+  assert.ok(doors.size > 10 && knobs > doors.size * 100, `${knobs} brass triangles for ${doors.size} doors`);
+  // Shops on the boulevard get their glass framed; the pane data carries
+  // each pane's plane, so the bars stand in it.
+  const boulevard = buildPlace('boulevard', propsAt('boulevard', 16.2), 'cobalt');
+  const shops = addDetail(boulevard);
+  const frame = shops.materials.findIndex((m) => m.name === 'frame');
+  let bars = 0;
+  for (let t = boulevard.mesh.count; t < shops.mesh.count; t++) if (shops.mesh.mat[t] === frame) bars++;
+  assert.ok(bars > 100, `${bars} mullion triangles`);
+  // And a walker can still walk the motel with its knobs on.
+  const W = buildWalk(lived);
+  let p = standAt(W, -1, motel.layout.block.z0 - 6);
+  for (let i = 0; i < 60; i++) p = walk(W, p, 0, 0.25);
+  assert.ok(Math.abs(p.y - motel.layout.block.F1) < 0.05);
 });
 
 test('the shadow map that follows the walker sees around them, and holds still to the texel', () => {

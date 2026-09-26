@@ -15,6 +15,7 @@ import { fit } from '../src/camera.js';
 import { DEG } from '../src/math.js';
 import { createLive } from '../src/live/renderer.js';
 import { buildWalk, walk, standAt, WALKER } from '../src/live/walk.js';
+import { addDetail } from '../src/live/detail.js';
 
 const MIN_H = 4.5;
 const MAX_H = 23.75;
@@ -103,7 +104,8 @@ function rebuild() {
   if (key === built) return;
   const carMoved = !world || world.id !== state.place || world.props?.car !== props.car || world.look?.name !== state.look;
   built = key;
-  world = buildPlace(state.place, props, state.look);
+  // With the close-up structure the painted town is built without.
+  world = addDetail(buildPlace(state.place, props, state.look));
   live.setWorld(world);
   // The walking grid only needs redoing when something solid moved.
   if (carMoved || !grid) grid = buildWalk(world);

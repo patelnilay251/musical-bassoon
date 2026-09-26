@@ -757,18 +757,45 @@ fn interior(pane: u32, id: u32, p: vec3f, d: vec3f, lamp: f32, warm: vec3f) -> v
     hi = vec3f(a1 - wr * 0.2, y0 + 0.55, depth);
     fc = select(vec3f(0.96, 0.94, 0.9), vec3f(0.55, 0.72, 0.92), h3 > 0.5);
   } else if (style == 1u) {
-    // A counter, partway in.
-    let ca = a0 + wr * (0.12 + 0.35 * h2);
-    lo = vec3f(ca, y0, 1.4);
-    hi = vec3f(ca + wr * 0.38, y0 + 1.0, 2.0);
-    fc = select(vec3f(0.92, 0.9, 0.86), vec3f(0.3, 0.46, 0.72), h1 > 0.6);
+    if (h3 < 0.33) {
+      // A cafe: its counter across the back.
+      lo = vec3f(a0 + wr * 0.1, y0, depth - 1.1);
+      hi = vec3f(a1 - wr * 0.1, y0 + 1.05, depth - 0.5);
+      fc = select(vec3f(0.95, 0.93, 0.88), vec3f(0.85, 0.35, 0.33), h1 > 0.5);
+    } else {
+      // A counter, partway in.
+      let ca = a0 + wr * (0.12 + 0.35 * h2);
+      lo = vec3f(ca, y0, 1.4);
+      hi = vec3f(ca + wr * 0.38, y0 + 1.0, 2.0);
+      fc = select(vec3f(0.92, 0.9, 0.86), vec3f(0.3, 0.46, 0.72), h1 > 0.6);
+    }
   } else {
     // A long low sofa against the back wall.
     lo = vec3f(a0 + wr * 0.25, y0, depth - 0.9);
     hi = vec3f(a1 - wr * 0.25, y0 + 0.45, depth);
     fc = select(vec3f(0.95, 0.93, 0.88), vec3f(0.9, 0.55, 0.5), h3 > 0.55);
   }
-  let tb = boxHit(o, r, lo, hi);
+  var tb = boxHit(o, r, lo, hi);
+  if (style == 1u && h3 < 0.33) {
+    // The cafe's little tables, down the middle.
+    for (var i = 0; i < 3; i++) {
+      let ta0 = a0 + wr * (0.18 + 0.3 * f32(i));
+      let tw0 = 1.1 + 0.9 * hashf(vec2f(seed, f32(i) + 7.0));
+      let tt = boxHit(o, r, vec3f(ta0, y0 + 0.7, tw0), vec3f(ta0 + 0.6, y0 + 0.76, tw0 + 0.6));
+      if (tt < tb) {
+        tb = tt;
+        fc = vec3f(0.97, 0.96, 0.93);
+        hi.y = y0 + 0.76;
+      }
+      // On one leg.
+      let tl = boxHit(o, r, vec3f(ta0 + 0.27, y0, tw0 + 0.27), vec3f(ta0 + 0.33, y0 + 0.7, tw0 + 0.33));
+      if (tl < tb) {
+        tb = tl;
+        fc = vec3f(0.35, 0.36, 0.4);
+        hi.y = y0 + 9.0;
+      }
+    }
+  }
   if (tb < t) {
     t = tb;
     q = o + r * t;
@@ -776,7 +803,31 @@ fn interior(pane: u32, id: u32, p: vec3f, d: vec3f, lamp: f32, warm: vec3f) -> v
     shade = select(0.78, 1.0, q.y > hi.y - 0.005);
     glow = 0.0;
   } else if (back) {
-    if (style == 1u && q.y > y0 + 0.3 && q.y < y0 + 2.3) {
+    // Each shop its own colors: warm, cool or sugared.
+    let pal = floor(h2 * 3.0);
+    let ca = select(select(vec3f(0.95, 0.72, 0.8), vec3f(0.3, 0.6, 0.62), pal > 0.5), vec3f(0.93, 0.42, 0.3), pal > 1.5);
+    let cb = select(select(vec3f(0.6, 0.8, 0.95), vec3f(0.3, 0.45, 0.85), pal > 0.5), vec3f(0.97, 0.8, 0.35), pal > 1.5);
+    if (style == 1u && h3 < 0.33) {
+      // A menu board over the cafe's counter.
+      if (abs(q.x - (a0 + a1) * 0.5) < wr * 0.3 && q.y > y0 + 1.6 && q.y < y0 + 2.3) {
+        let line = (q.y - y0 - 1.65) / 0.09;
+        let ink = line - floor(line) < 0.3 && hashf(vec2f(floor(q.x / 0.3), floor(line))) > 0.25;
+        c = select(vec3f(0.12, 0.2, 0.22), vec3f(0.92, 0.9, 0.82), ink);
+        shade = 1.0;
+      }
+    } else if (style == 1u && h3 < 0.55) {
+      // A boutique: clothes on a rail.
+      if (q.y > y0 + 0.85 && q.y < y0 + 1.62) {
+        let k = hashf(vec2f(floor(q.x / 0.09) + seed, 5.0));
+        if (k > 0.2) {
+          c = mix(ca, cb, step(0.55, k)) * (0.85 + 0.15 * hashf(vec2f(k, 1.0)));
+          shade = 0.9;
+        }
+      } else if (q.y > y0 + 1.62 && q.y < y0 + 1.66) {
+        c = vec3f(0.85, 0.85, 0.86);
+        shade = 1.0;
+      }
+    } else if (style == 1u && q.y > y0 + 0.3 && q.y < y0 + 2.3) {
       // Shelves of goods.
       let row = (q.y - y0 - 0.3) / 0.5;
       if (row - floor(row) < 0.1) {
@@ -785,8 +836,8 @@ fn interior(pane: u32, id: u32, p: vec3f, d: vec3f, lamp: f32, warm: vec3f) -> v
       } else {
         let k = hashf(vec2f(floor(q.x / 0.22) + seed, floor(row)));
         if (k > 0.35) {
-          c = mix(vec3f(0.92, 0.38, 0.36), vec3f(0.3, 0.56, 0.86), hashf(vec2f(k * 13.0, 3.0)));
-          c = mix(c, vec3f(0.96, 0.84, 0.4), step(0.82, k));
+          c = mix(ca, cb, hashf(vec2f(k * 13.0, 3.0)));
+          c = mix(c, vec3f(0.96, 0.95, 0.9), step(0.85, k));
           shade = 0.85;
         }
       }
@@ -800,7 +851,9 @@ fn interior(pane: u32, id: u32, p: vec3f, d: vec3f, lamp: f32, warm: vec3f) -> v
   // Daylight through the window; after dark, the room's own lamps.
   // (Daylight indoors has lost the sky's blue on the walls and floors.)
   let dayIn = dot(F.amb.rgb, vec3f(0.3, 0.45, 0.25)) * vec3f(1.0, 0.97, 0.92) * 0.72 + F.key.rgb * (0.2 * F.key.w);
-  col *= dayIn + warm * (0.95 * lamp);
+  // The lamps are warm from outside; within, whiter, so the room keeps its colors.
+  let lampIn = mix(warm, vec3f(1.0, 0.95, 0.86) * dot(warm, vec3f(0.33)), 0.55);
+  col *= dayIn + lampIn * (1.05 * lamp);
   col = mix(col, warm * 1.35, glow * lamp);
   // A motel room's curtains, drawn to the sides of the window.
   if (style == 0u) {
@@ -872,7 +925,7 @@ fn shadeGlass(m: u32, ids: u32, p: vec3f, n0: vec3f, d: vec3f) -> vec3f {
     if (vis > 0.0) {
       let inside = interior(pane - 1u, obj, p, d, on, M.emit);
       let fr = 0.18 + 0.82 * powz(1.0 - c, 4.0);
-      let k = mix(0.48, 0.28, clamp(on, 0.0, 1.0));
+      let k = mix(0.38, 0.26, clamp(on, 0.0, 1.0));
       let refl = col * k;
       let through = vec3f(1.0) - (vec3f(1.0) - inside * vec3f(0.9, 0.95, 1.0)) * (vec3f(1.0) - refl);
       col = mix(col, mix(through, col, fr), vis);

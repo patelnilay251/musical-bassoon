@@ -92,6 +92,29 @@ The painted town makes one picture at a time on the processor. The live town (`s
 - **Back faces are culled, as the painter does.** Open water is one sheet seen from above. The mirrored camera sees it from below, and it must not paint over the boats reflected in it.
 - **Big triangles are cut small near the camera.** The highway and its painted lines run for twelve kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it.
 
+### Up close
+
+A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town: the shaders' additions fade out by thirty meters, and the geometry is added to a finished world (`src/live/detail.js`), never built into it.
+
+- **A second shadow map follows the walker.** It is 40 m across at a centimeter a texel, read with nine taps. The whole-box map is ten centimeters a texel on the boulevard. Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first few degrees, so a low sun along a wall doesn't paint it in teeth.
+- **Grain, by material:**
+  - sprayed stucco on the walls;
+  - stones in the asphalt, with sealed cracks that wander;
+  - concrete speckle, and each slab poured a shade of its own;
+  - fibers up the palm trunks;
+  - sand;
+  - wood grain along the boards;
+  - blades of grass.
+
+  Every octave fades before a pixel is a third of its size, so nothing shimmers.
+- **Rooms behind the glass.** Interior mapping: each pane opens onto a room that is not there. The ray from the eye goes on past the glass to the room's back wall, a side wall, the floor or the ceiling, and meets what stands in the room.
+  - Motel rooms have curtains and a bed.
+  - The boulevard has three kinds of shop: shelves of goods and a counter, a café with a menu board and tables, and a boutique with clothes on a rail.
+  - Elsewhere there is a sofa and a picture of the sea.
+
+  By day the painted glass lies over the room as a reflection would, and lightens it. After dark the lit rooms glow, and their lamps light what is in them.
+- **Hardware and framing.** The motel doors have brass knobs, kick plates and room numbers, 101 up along the ground floor and 201 up along the walkway, lettered in the town's sign font. The big panes of the shops and lounges are framed with mullions and transoms.
+
 ## How it works
 
 **Rasterizer** (`src/raster.js`). Triangles are clipped against the near plane and rasterized with edge functions into a visibility buffer: for each sample, the nearest triangle's id and depth. Shading runs once per visible sample, afterwards, so overdraw is nearly free. Frames render in 64-pixel tiles with supersampling.

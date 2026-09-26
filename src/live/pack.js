@@ -136,6 +136,7 @@ export function packPanes(world) {
     let a1 = -Infinity;
     let y0 = Infinity;
     let y1 = -Infinity;
+    let w = 0;
     for (const t of g.tris) {
       for (let k = 0; k < 3; k++) {
         const x = mesh.pos[t * 9 + k * 3];
@@ -146,6 +147,7 @@ export function packPanes(world) {
         a1 = Math.max(a1, a);
         y0 = Math.min(y0, y);
         y1 = Math.max(y1, y);
+        w += nx * x + nz * z;
       }
     }
     const n = data.length / PANE_FLOATS + 1;
@@ -153,7 +155,8 @@ export function packPanes(world) {
     for (const t of g.tris) paneOf[t] = n;
     // What is inside: a motel room, a shop on the boulevard, or a lounge.
     const style = world.materials[mesh.mat[g.tris[0]]].name === 'roomGlass' ? 0 : world.id === 'boulevard' ? 1 : 2;
-    data.push(a0, a1, y0, y1, nx, nz, style, 0);
+    // Last, how far along its normal the pane's plane lies.
+    data.push(a0, a1, y0, y1, nx, nz, style, w / (g.tris.length * 3));
   }
   return { data: Float32Array.from(data.length ? data : new Array(PANE_FLOATS).fill(0)), paneOf, count: data.length / PANE_FLOATS };
 }
