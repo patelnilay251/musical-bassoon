@@ -19,6 +19,7 @@ import { createLive } from '../src/live/renderer.js';
 import { TownWalk, walk, standAt, WALKER } from '../src/live/walk.js';
 import { Town, LAYOUT, placeAt } from '../src/live/town.js';
 import { buildGround } from '../src/live/ground.js';
+import { buildHinterland } from '../src/live/hinterland.js';
 
 const MIN_H = 4.5;
 const MAX_H = 23.75;
@@ -93,9 +94,14 @@ async function layOut() {
   live.setScene(town);
   grid = new TownWalk(town);
   const at = LAYOUT[state.place].at;
-  queue = ORDER.filter((id) => id !== state.place).sort((a, b) => dist(LAYOUT[a].at, at) - dist(LAYOUT[b].at, at));
+  // The land behind the coast next (it is what you see first, looking
+  // inland), then the other places, nearest first.
+  queue = [HINTERLAND, ...ORDER.filter((id) => id !== state.place).sort((a, b) => dist(LAYOUT[a].at, at) - dist(LAYOUT[b].at, at))];
   busy(null);
 }
+
+const HINTERLAND = 'hinterland';
+const nameOf = (id) => (id === HINTERLAND ? 'the hills' : PLACES[id].NAME.replace(/^The /, 'the '));
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 
@@ -103,7 +109,8 @@ const dist = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 function grow(id = queue[0]) {
   if (!id) return;
   queue = queue.filter((q) => q !== id);
-  town.addPlace(id, state.hours);
+  if (id === HINTERLAND) town.setPiece(HINTERLAND, buildHinterland(town));
+  else town.addPlace(id, state.hours);
   live.sync();
   grid.sync();
 }
@@ -193,11 +200,11 @@ function frame(t) {
   pace(dt);
   // The work of the next frames: the rest of the town, the ground ahead.
   if (queue.length) {
-    busy(`laying out ${PLACES[queue[0]].NAME.replace(/^The /, 'the ')}`);
+    busy(`laying out ${nameOf(queue[0])}`);
     // After this frame is on screen, so the message shows first.
     setTimeout(() => {
       grow();
-      busy(queue.length ? `laying out ${PLACES[queue[0]].NAME.replace(/^The /, 'the ')}` : null);
+      busy(queue.length ? `laying out ${nameOf(queue[0])}` : null);
       requestAnimationFrame(frame);
     }, 0);
     return;

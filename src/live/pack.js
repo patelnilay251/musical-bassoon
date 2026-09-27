@@ -288,6 +288,14 @@ const DETAIL_OF = {
   hedge: 'leaves',
   bush: 'leaves',
   shrub: 'leaves',
+  bark: 'bark',
+  eucalyptus: 'leaves',
+  cypress: 'leaves',
+  canopy: 'leaves',
+  scrub: 'leaves',
+  icePlant: 'leaves',
+  fanLeafLight: 'leaves',
+  fanLeafOld: 'leaves',
 };
 
 export function packMaterials(world) {

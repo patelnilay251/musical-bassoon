@@ -9,7 +9,7 @@ import { MeshBuilder, CAST, DOUBLE, NOREFLECT } from '../mesh.js';
 import { Rng, hashInts } from '../math.js';
 import { hills, lampPost, railing } from '../world/common.js';
 import { addFanPalm } from '../world/fanpalm.js';
-import { LAYOUT, BOULEVARD, side, roadY, coastX } from './town.js';
+import { LAYOUT, BOULEVARD, side, roadY, coastX, STREETS, STREET } from './town.js';
 
 const SEED = 19861990;
 const FAR = 25000;
@@ -110,7 +110,13 @@ function coastRoad(b, M, z0, z1, rng, lights, town) {
   for (const x of [-6.35, 6.23]) flat(b, M.lineWhite, x, x + 0.12, z0, z1, (xx, z) => roadY(z) + 0.012);
   // Sidewalks: tops, and the curb faces the road sees.
   const foot = BOULEVARD.foot;
-  const eastParts = z0 < foot[1] && z1 > foot[0] ? [[z0, foot[0]], [foot[1], z1]] : [[z0, z1]];
+  let eastParts = z0 < foot[1] && z1 > foot[0] ? [[z0, foot[0]], [foot[1], z1]] : [[z0, z1]];
+  // The side streets' mouths: no sidewalk across them.
+  for (const [sx, sz, , ez] of STREETS) {
+    if (sz !== ez || sx > 10.01) continue;
+    const [a, c] = [sz - STREET.half, sz + STREET.half];
+    eastParts = eastParts.flatMap(([p, q]) => (c <= p || a >= q ? [[p, q]] : [[p, a], [c, q]].filter(([u, v]) => v - u > 0.5)));
+  }
   // (A face's heights go by z alone.)
   const curbLo = (z) => roadY(z);
   const curbHi = (z) => roadY(z) + 0.15;
@@ -497,8 +503,11 @@ function fields(b, M, town) {
 }
 
 // The fields' height: each place's own at its edge, the road's at the
-// curb, the boulevard's slope along its sides, blended by distance.
-function fieldHeight() {
+// curb, the boulevard's slope along its sides, blended by distance; and
+// away from all of them the land rises inland into rolling hills, a few
+// tens of meters by a kilometer in. The land behind the town is built on
+// the same heights (hinterland.js).
+export function fieldHeight() {
   const beach = LAYOUT.beach.ground;
   const motel = LAYOUT.motel.ground;
   const bv = LAYOUT.boulevard.ground;
@@ -513,13 +522,24 @@ function fieldHeight() {
     ];
     let sw = 0;
     let sh = 0;
-    for (const [d, h] of anchors) {
+    let near = Infinity;
+    for (let i = 0; i < anchors.length; i++) {
+      const [d, h] = anchors[i];
       const w = 1 / (d + 1) ** 3;
       sw += w;
       sh += w * h;
+      if (i < 4) near = Math.min(near, d);
     }
-    return sh / sw;
+    return sh / sw + hillsAt(x, z) * smooth((near - 30) / 260);
   };
+}
+
+const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+
+// The hills themselves: a steady rise inland, and folds across it.
+function hillsAt(x, z) {
+  const u = Math.max(0, Math.min(x, 1600) - 10);
+  return u * 0.034 + (6 * Math.sin(z / 170 + 1.1) * Math.sin(u / 130) + 3.5 * Math.sin(z / 67 + u / 91 + 0.4)) * smooth(u / 200);
 }
 
 // How far (x, z) is outside a convex outline (0 inside), roughly: the

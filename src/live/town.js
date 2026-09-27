@@ -168,6 +168,29 @@ export function coastX(z) {
   return COAST[COAST.length - 1][1];
 }
 
+// The side streets behind the coast (hinterland.js), as center lines
+// [x0, z0, x1, z1] along x or along z. Behind the harbor: five up from the
+// coast road, and Ridge Road across their tops. Behind the beach: Hill
+// Street, off the southmost of those, and five up from it. Where one meets
+// the coast road, the road's sidewalk stops for it (ground.js).
+export const STREET = { half: 4.5, walk: 1.8 };
+export const STREETS = [
+  [10, -430, 252, -430],
+  [10, -345, 252, -345],
+  [10, -258, 252, -258],
+  [10, -170, 252, -170],
+  [10, -92, 252, -92],
+  [252, -440, 252, -82],
+  [70, -92, 70, 372],
+  [70, 0, 330, 0],
+  [70, 80, 330, 80],
+  [70, 160, 330, 160],
+  [70, 240, 320, 240],
+  [70, 320, 300, 320],
+];
+// Behind the motel, one road out across the fields.
+export const FARM_ROAD = [64, 760, 620, 760];
+
 // Small things (a palm's fronds, a parked car, a door knob) are kept or
 // left whole, by where their middle is, within this much of the ground's
 // edge; only big faces are cut along it.
@@ -251,8 +274,13 @@ export class Town {
   }
 
   /** The town's own ground, from ground.js: { builder, lights }. */
-  setGround({ builder, lights }) {
-    this.chunks.set('ground', { id: 'ground', mesh: finalizeMesh(builder), lights, pool: null });
+  setGround(ground) {
+    this.setPiece('ground', ground);
+  }
+
+  /** A piece of the town's own (the ground, the land behind the coast). */
+  setPiece(id, { builder, lights }) {
+    this.chunks.set(id, { id, mesh: finalizeMesh(builder), lights, pool: null });
     this.version++;
   }
 
