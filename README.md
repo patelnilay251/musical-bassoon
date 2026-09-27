@@ -7,6 +7,7 @@ A motel on the coast highway, a boulevard laid out on the midsummer sunset, a be
 ![Paloma Bay in the Cobalt look: the motel, the boulevard at sunset, the beach, the house, the marina, the motel walkway, the beach at sunset, the docks, the diner](docs/gallery/cobalt/town.png)
 
 - **Visit the town:** [`docs/index.html`](docs/index.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/)). Full screen, one picture at a time, nothing else on it. Drag across the painting to pass the day. `←` `→` go to another place and `↑` `↓` to another view of it; on a phone, tap the edges or flick up and down. `Space` lets the day go by on its own, and `L` (or the switch in the corner) turns the town to the other look. The page opens wherever the visitor happens to be at your local time, in the look you chose last.
+- **Walk the town:** [`docs/live.html`](docs/live.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/live.html)). The whole town as one stretch of coast, painted live on your graphics chip by the same rules, in either look. Click and walk with `W` `A` `S` `D` (`shift` to run) and look around with the mouse. Walk from the house on its point down the coast road past the harbor, go down the steps to the beach, up the boulevard, and on to the motel; climb the motel stairs to the walkway, or go up the gangway from the docks to the quay. `1` to `5` (or the names at the top) take you straight to a place, `[` `]` or the wheel change the hour, and `space` lets the day pass. It needs WebGPU: Chrome, Edge, or Safari 26 and later.
 - **The book:** [`docs/book.html`](docs/book.html). *Wish You Were Here*: ten postcards from one summer day, sent by someone who never appears in any of them, in either look.
 - **The film:** [`docs/day.html`](docs/day.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/day.html)). *One Day in Paloma Bay*: three minutes of one summer day, passing through every postcard in the book, with its own score. The 1080p master is on the [releases page](https://github.com/patelnilay251/musical-bassoon/releases/tag/render-day-final).
 - **The arcade version:** [`docs/film.html`](docs/film.html) ([live](https://patelnilay251.github.io/musical-bassoon/docs/film.html)). *Paloma Bay, the attract mode*: 86 seconds of an arcade game from a summer that never happened, with its own music.
@@ -75,12 +76,77 @@ The town, filmed as the arcade game its summer would have had, playing itself be
 The first version rendered a resort. This one tries to paint a town, the way an illustrator with an airbrush would:
 
 - **Light is chosen, not simulated.** Each moment of the day names a light tone and a shade tone, keyed to the sun's elevation. Planes take one of three lit values (full, oblique, grazing) instead of a continuous falloff, and curved forms get a soft terminator and a sprayed sheen.
-- **Shade is a color.** In Pastel a face in shadow is its own color under the shade tone, so shadows are a change of hue, not a loss of it. Cobalt mixes shade instead of graying it. A color keeps its own hue, deeper and richer: a pink wall goes coral, a lawn deep green. Only whites and grays take the sky's cerulean. Shadows cast on the ground are deeper than walls in shade. Foliage is painted as dark masses with the sunlit leaves picked out bright, and palm fronds darken toward the crown and brighten toward their tips.
+- **Shade is a color.** In Pastel a face in shadow is its own color under the shade tone, so shadows are a change of hue, not a loss of it. Cobalt mixes shade instead of graying it. A color keeps its own hue, deeper and richer: a pink wall goes coral, a lawn deep green. Only whites and grays take the sky's cerulean. Shadows cast on the ground are deeper than walls in shade. Foliage is painted as dark masses with the sunlit leaves picked out bright, in dabs: the leaves grow in clusters, each turned its own way, so the sunlit side of a tree or a bush breaks into patches of light with round edges, thinning out toward the shade. Far off, where a dab would be only a few pixels, a crown is lit whole. Palm fronds darken toward the crown and brighten toward their tips.
 - **Skies are sprayed by hand.** A blue ground goes down first, then the horizon's tone sprayed up from below, then blue back over it toward the zenith, never perfectly even. Clouds are crowns of puffs lit as one airbrushed form. Pastel's horizon is misted white and its cumulus stand high. Cobalt stays a deep, saturated cobalt right down to the horizon and has two clouds at most, low on it. There, thin streaks appear only when the sun is low, and nights are a luminous royal blue, not black.
 - **Glass and water are painted the way painters paint them.** Windows get deep blue at the foot of each floor, lifting toward the sky's color, with diagonal bands of reflected light. Water mirrors the world through a second camera, then gets marbled bands and broken white crest lines. Beaches fade from aqua over the sand to deep blue offshore, with foam drawn as tapered strokes. Cobalt's pools are azure, and the sun on their ripples is dabbed on as a mosaic of small bright flecks.
 - **Hot color where the picture needs it.** In Cobalt, bougainvillea, hibiscus, oleander and lantana grow along the pool walls, around the foot of the motel sign, in planters on the boulevard and at the feet of the promenade palms (`src/world/plants.js`). They are dark green mounds studded with blossoms. Decks and sidewalks are a warm pink-cream.
 - **Verticals stay vertical.** Every composition is built level, like a view camera, and a lens shift puts the horizon where the picture wants it (`src/camera.js`). Taller screens keep the width of the view and gain sky. Long lenses flatten the perspective.
 - **Finish:** neon and lamps burn past white, and a glow pass lets them bleed. Distance lays a veil of the horizon's color over things. It is heavier in Pastel, and in Cobalt faint, so distant things stay crisp. Pastel gets a fine grain, strongest in the midtones so whites stay clean. Cobalt gets only a faint dither that keeps its deep gradients from banding: acrylic sprayed smooth.
+
+## Walking the town
+
+The painted town makes one picture at a time on the processor. The live town (`src/live/`) paints the same places on the graphics chip about sixty times a second, so you can walk through them. The rules are the same ones, written again as shaders (`src/live/wgsl.js`): the sky and the sea, the three painted values, each look's shade, the patterns, the glass and lit rooms, the pools and the harbor with their mirrored worlds, the pools of lamplight, the glow and the grain.
+
+- **The camera stays level**, as in the paintings. Looking up or down slides the frame, like the rising front of a view camera, so the motel's posts and the palms stay vertical.
+- **Walking** (`src/live/walk.js`) reads the town's triangles into a grid of 25 cm cells, built 48 meters at a time as you come near: where the floors are, what stands in the way, and where the water is. You can step up a curb, climb a stair or a gangway, but not walk through a wall, and you never stand below the water. What is too high to matter is measured from each cell's own ground, since the town climbs thirty meters up the boulevard. A crack one cell wide between two floors is stepped over. The live town adds the openings a walker needs where a painting drew straight across: a gap in the beach rail at each flight of steps down to the sand, and a floor through the house's gate. From every place you can walk to the coast road.
+- **Each walk starts where the place's hero picture is taken.** The marina is the exception: its hero picture is taken from the yacht club's terrace, which has no stairs down, so the walk starts at the end of a dock.
+- **The town is laid out a place at a time:** the one you start in first, then its neighbors, nearest first, while you look around.
+- **Back faces are culled, as the painter does.** Open water is one sheet seen from above. The mirrored camera sees it from below, and it must not paint over the boats reflected in it.
+- **Big triangles are cut small wherever a camera can be.** The motel's highway and its painted lines run for kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it. They are cut along one grid of 28 m squares, so neighbors still meet corner to corner.
+- **Only what can be seen is drawn.** Each piece of the town is laid out in 96 m squares of ground. The camera, the mirror and each shadow map draw only the squares they can see, and the mirror only the part of them its water shows. Open water isn't mirrored at all when none is in view. The water mirrored is the nearest pool in view, otherwise the sea.
+- **Lamps by the square.** The ground is cut into 16 m squares, each listing the lamps whose light can reach it. A point asks only those, and gets exactly the light it would if it asked all seven hundred and fifty.
+- **The sea mirrors only what it can show.** All the open water is west of the shore. Seen from east of it, anything else east of it can be mirrored only where there is ground in between, so the sea's mirror leaves it out. Out on the water, the hills behind the town are mirrored in the harbor.
+
+### One coast
+
+Live, the five places are one town (`src/live/town.js`), laid along a coast that faces west into the sunset. North to south: the house on its point, the marina and its harbor, the beach, the boulevard coming down to the coast road, and the motel. The coast road runs the whole length, three kilometers, and each place is a minute or two's walk from the next.
+
+- **Each place is built exactly as the painted town builds it**, then moved into place. It is never turned: the light in every postcard depends on which way the place faces. Heights are set so every place's own sea is the town's.
+- **Each place keeps its own ground**, cut to an outline, and the town adds its own sea, hills and horizon. Standing things (a shop, a palm, a parked car) come in whole or not at all, by where their middle is. Only the ground, roads and long walls are cut, so no shop at an edge stands open to the street.
+- **Between the places is the town's own ground** (`src/live/ground.js`):
+  - the coast road wherever no place brings its own, with its sidewalks, fan palms and lamps;
+  - the shore from each place to the next: a sea wall north of the house, a rock face down to the harbor, a mound of rubble carrying a walkway out to the breakwater, a promenade and new sand from the quay to the beach, then a groyne and a sea wall on to the motel;
+  - the foot of the boulevard, carried down level to the road;
+  - fields behind, and hills.
+- **Behind the coast road the land rises into hills**, and the town goes on up them (`src/live/hinterland.js`, live only):
+  - a dozen streets climbing from the road to Ridge Road along the top, with curbs, sidewalks and street lamps, and a farm road out across the fields behind the motel;
+  - bungalows along them, each with a hipped, gabled or flat roof, a porch light, a stoop, a garage or a drive, and a yard with a lawn, a hedge, a pair of cypresses by the gate or a tree;
+  - a gas station across the road from the marina, under a canopy;
+  - a water tower on the hill, lettered PALOMA BAY toward the sea;
+  - power poles down the inland side of the road, strung with sagging wires, on past the motel;
+  - eucalyptus windbreaks across the fields, groves on the hills, sage scrub, and ice plant and agave along the road's edge.
+- **One sea and one sky.** Out at sea the waves are the beach's, and inside the breakwater they are the marina's own. Each place's patterns, grain and ripples, and the airbrush up its walls, are laid from where the place stands, so they fall exactly as in its own pictures.
+
+The postcard views, taken in the town, are within one to five levels of 255 of the painted stills on average. Where they differ most it is the town itself: land behind the marina where its painting has open sea, and one sky's clouds for the whole coast.
+
+### Up close
+
+A painting never has to show what a walker sees at arm's length, so the live town adds it. None of it reaches the painted town. The shaders' additions fade out within twenty meters (the rooms behind the glass within fourteen), so from where the painted views are taken the live town still looks like them. The geometry is added to a finished world (`src/live/detail.js`), never built into it.
+
+- **Three shadow maps follow the walker**, each handing over to the next across its rim:
+  - 40 m across at a centimeter a texel, read with nine taps;
+  - 240 m across at six centimeters;
+  - 1.1 km across at a quarter meter, as far as the haze lets anything be seen.
+
+  Where the sun grazes a wall, the lookup is pushed further off the face and read wider, and the grazing light comes in over the first three degrees, so a low sun along a wall doesn't paint it in teeth. Past the last caster, a map reads as lit, as the painter's does.
+- **Grain, by material:**
+  - sprayed stucco on the walls;
+  - stones in the asphalt, with sealed cracks that wander;
+  - concrete speckle, and each slab poured a shade of its own;
+  - fibers up the palm trunks;
+  - sand;
+  - wood grain along the boards;
+  - blades of grass;
+  - clusters of leaves on the hedges, bushes and trees, in a noise that runs all the way round.
+
+  Every octave fades before a pixel is a third of its size, so nothing shimmers.
+- **Rooms behind the glass.** Interior mapping: each pane opens onto a room that is not there. The ray from the eye goes on past the glass to the room's back wall, a side wall, the floor or the ceiling, and meets what stands in the room.
+  - Motel rooms have curtains and a bed.
+  - The boulevard has three kinds of shop: shelves of goods and a counter, a café with a menu board and tables, and a boutique with clothes on a rail.
+  - Elsewhere there is a sofa and a picture of the sea.
+
+  By day the painted glass lies over the room as a reflection would, and lightens it. After dark the lit rooms glow, and their lamps light what is in them.
+- **Hardware and framing.** The motel doors have brass knobs, kick plates and room numbers, 101 up along the ground floor and 201 up along the walkway, lettered in the town's sign font. The big panes of the shops are framed with mullions and transoms, except where the building already has frames of its own, like the diner's window band.
 
 ## How it works
 
@@ -93,7 +159,10 @@ The first version rendered a resort. This one tries to paint a town, the way an 
 **The town** (`src/scenes/`, `src/world/`). A transform-stack mesh builder (boxes, prisms, extruded profiles, tubes, spheres) feeds the rules for each place:
 - a motel block with walkways, pickets and colored doors;
 - a pylon sign with stacked channel letters in a stroke font, neon laid in every stroke;
-- Mexican fan palms with skirts and split, drooping fan leaves, and coconut palms with folded leaflets;
+- Mexican fan palms, each with a shaggy skirt of dead fronds or a short trimmed boot, under a crown of pleated fan leaves that split and droop past the middle: young leaves standing up in a lighter green, old ones hanging yellow under them;
+- coconut palms with twisted fronds of folded leaflets, the young ones lighter and an old one yellowing;
+- eucalyptus with pale forked trunks, Italian cypresses, round street trees, agave, sage scrub and ice plant (`src/world/trees.js`). A round tree's crown is one closed surface heaped with lobes, as far out as any of them reaches, so its edge is scalloped and each lobe takes the sun on its own cap;
+- shops and beach houses finished round the back and sides as well as the front: windows, back doors under canopies with a lamp, downspouts, air conditioners, a stair up the back of the taller ones, and behind the boulevard's shops, lots with painted bays, trees and lamps;
 - cars in three bodies;
 - hulls lofted from stations, with sheer, flare and overhangs, then rigged as sloops or built up into motor yachts;
 - a lighthouse, a rock breakwater, a pier on pilings, a lifeguard tower, and a streamline diner with a rounded end.
@@ -107,8 +176,8 @@ The boulevard is built in a road frame and turned onto the sunset bearing. Every
 Node 22 or newer. `npm install` brings in esbuild, which is used only to bundle the site.
 
 ```sh
-npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films
-npm run build            # docs/index.html (the town) and docs/workshop.html (the old viewer)
+npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town, its coast and the land behind it
+npm run build            # docs/index.html (the town), docs/live.html (the live town) and docs/workshop.html (the old viewer)
 npm run book             # the postcards in both looks, in parallel on every core, into docs/book/<look>/ and docs/book.html
 npm run gallery          # the contact sheets above, in both looks, into docs/gallery/<look>/
 npm run film -- --film day   # One Day in Paloma Bay, its poster and docs/day.html (needs ffmpeg)
@@ -127,6 +196,6 @@ Films are streamed frame by frame, in order, into ffmpeg (on the `PATH`, or name
 ## Notes
 
 - The style is an homage. No artwork was copied or used as input to the program; both looks come from rules written in code. Cobalt's palette and rules were tuned by studying published record covers next to our own pictures and measuring the difference (sky gradients, saturation, the color of shade).
-- Geometry ranges from about 35,000 triangles (the house, in Pastel) to 240,000 (the boulevard in Cobalt, which has 128 palms, a parking meter for every space, a dozen cars and planters of flowers on it).
+- Geometry ranges from about 42,000 triangles (the house, in Pastel) to 380,000 (the boulevard in Cobalt, which has 128 palms, a parking meter for every space, cars, planters of flowers and the lots behind its shops). The live town is 1.4 million, 420,000 of them the hills behind the coast road.
 - The film's game, its company and its copyright line are fictional.
 - `PHILOSOPHY.md` is the brief the engine was built against.

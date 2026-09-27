@@ -28,6 +28,7 @@ const SLOPE = 0.035;
 const WALL = 72; // the promenade's sea wall
 const PROM = WALL * SLOPE + 0.9; // promenade level
 const Z = 3000; // the beach runs on out of sight both ways
+const STEPS = [-40, 30, 110]; // flights down to the sand, 2.4 m wide
 const FAR = 25000;
 const PIER = -95;
 
@@ -87,7 +88,7 @@ export function build(props = {}, look = lookOf()) {
   b.use(M.rail, CAST);
   for (let z = -300; z <= 300; z += 2.4) b.box(WALL - 0.24, PROM + 0.08, z - 0.03, WALL - 0.16, PROM + 1.03, z + 0.03);
   // Steps down to the sand every so often.
-  for (const zs of [-40, 30, 110]) {
+  for (const zs of STEPS) {
     b.use(M.trim, CAST);
     for (let i = 0; i < 6; i++) {
       const x = WALL - 0.4 - i * 0.32;
@@ -253,7 +254,7 @@ export function build(props = {}, look = lookOf()) {
     },
     lights,
     shadowBox: { min: [-120, -3, -110], max: [WALL + 45, 24, 95] },
-    layout: { tower: { ...T, ...tower }, spot, pier: PIER, palms },
+    layout: { tower: { ...T, ...tower }, spot, pier: PIER, palms, steps: { x: WALL, y: PROM, z: STEPS, half: 1.2 } },
     views: {
       tower: level([4, sandY(4) + 1.6, 7.5], 83, 30, 0.3),
       sunset: level([50, sandY(50) + 1.6, 0.5], 284, 36, 0.42),
@@ -290,5 +291,61 @@ function house(b, M, x, z, w, h, wall, rng, lights) {
       railing(b, M.rail, [[x - 1.35, fy, z + 0.85], [x - 1.35, fy, z + w - 0.85]], { h: 1.0, pitch: 1.2, r: 0.025 });
     }
     lights.push({ p: [x - 0.8, fy + 1.6, z + w / 2], c: [1, 0.72, 0.42], r: 2.6, k: 0.5 });
+  }
+  houseRear(b, M, new Rng(hashInts(SEED, 8000 + Math.round((z + 1000) * 10))), x, z, w, d, h, y0, lights);
+}
+
+// The back of a house across the street, which the streets behind it see:
+// a band of color under the cornice round the back and sides, windows on
+// every floor, a back door under a canopy with its lamp, downspouts, a
+// unit on the roof, and on the taller ones a stair up the back. Drawn
+// from the house's own stream.
+function houseRear(b, M, r, x, z, w, d, h, y0, lights) {
+  const back = x + d;
+  const top = y0 + h;
+  b.object();
+  b.use(r.pick([M.signTeal, M.signRed, M.signNavy, M.trim]), CAST);
+  b.box(back, top - 0.75, z - 0.03, back + 0.03, top - 0.45, z + w + 0.03);
+  b.box(x, top - 0.75, z - 0.03, back + 0.03, top - 0.45, z);
+  b.box(x, top - 0.75, z + w, back + 0.03, top - 0.45, z + w + 0.03);
+  b.use(M.trim, CAST);
+  for (const zz of [z + 0.3, z + w - 0.3]) b.box(back + 0.03, y0 + 0.2, zz - 0.07, back + 0.17, top, zz + 0.07);
+  const floors = Math.round(h / 3.3);
+  b.use(M.glass, CAST);
+  for (let f = 0; f < floors; f++) {
+    const fy = y0 + f * 3.3;
+    for (const u of f === 0 ? [0.72] : [0.3, 0.7]) {
+      const zc = z + w * u;
+      b.box(back, fy + 0.9, zc - 0.9, back + 0.04, fy + 2.1, zc + 0.9);
+    }
+    // One down each side, toward the back, upstairs.
+    if (f > 0) {
+      b.box(x + d * 0.7 - 0.8, fy + 0.9, z - 0.04, x + d * 0.7 + 0.8, fy + 2.1, z);
+      b.box(x + d * 0.7 - 0.8, fy + 0.9, z + w, x + d * 0.7 + 0.8, fy + 2.1, z + w + 0.04);
+    }
+  }
+  const dz = z + w * r.range(0.25, 0.45);
+  b.use(M[r.pick(['doorRed', 'doorYellow', 'doorBlue', 'doorGreen', 'door'])], CAST);
+  b.box(back, y0, dz - 0.55, back + 0.05, y0 + 2.2, dz + 0.55);
+  b.use(M.trim, CAST);
+  b.box(back, y0 + 2.45, dz - 1.1, back + 1.1, y0 + 2.58, dz + 1.1);
+  lights.push({ p: [back + 0.7, y0 + 2.3, dz], c: [1, 0.82, 0.55], r: 2.6, k: 0.5 });
+  b.use(M.meter, CAST);
+  const ux = x + d * r.range(0.3, 0.7);
+  const uz = z + w * r.range(0.3, 0.7);
+  b.box(ux - 0.8, top + 0.3, uz - 0.6, ux + 0.8, top + 1.3, uz + 0.6);
+  if (floors > 1 && w > 13) {
+    // A stair up the back, from the ground to the first floor above.
+    const z0 = dz + 1.6;
+    const run = 5.4;
+    const steps = 12;
+    b.use(M.rail, CAST);
+    for (let k = 0; k < steps; k++) {
+      const zk = z0 + (run * k) / steps;
+      const yk = y0 + (3.3 * (k + 1)) / steps;
+      b.box(back + 0.05, yk - 0.06, zk, back + 1.15, yk, zk + run / steps + 0.02);
+    }
+    b.box(back + 0.05, y0 + 3.2, z0 + run, back + 1.15, y0 + 3.3, z0 + run + 1.6);
+    railing(b, M.rail, [[back + 1.15, y0 + 0.9, z0], [back + 1.15, y0 + 3.35, z0 + run], [back + 1.15, y0 + 3.35, z0 + run + 1.6]], { h: 0.95, posts: true, pitch: 1.4, r: 0.02 });
   }
 }

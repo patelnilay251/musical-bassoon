@@ -12,7 +12,8 @@ import { makeSky } from '../sky.js';
 import { makeMaterials } from '../world/materials.js';
 import { addFanPalm } from '../world/fanpalm.js';
 import { addCar, parkedCar } from '../world/cars.js';
-import { hills, lampPost } from '../world/common.js';
+import { hills, lampPost, railing } from '../world/common.js';
+import { addRoundTree } from '../world/trees.js';
 import { neonWord, addBoard } from '../world/signs.js';
 import { addMeter, addHydrant, addNewsBox } from '../world/street.js';
 import { addFlowerBush } from '../world/plants.js';
@@ -162,6 +163,17 @@ export function build(props = {}, look = lookOf()) {
     }
   }
   diner(b, M, -1, cx0 - 31, cx0 - 2, light);
+  backLots(
+    b,
+    M,
+    sub(41),
+    light,
+    [
+      [X0 + 16, cx0 - 1],
+      [cx1 + 1, X1],
+    ],
+    [[-1, cx0 - 40, cx0 + 1]],
+  );
 
   // ---- flowering bushes in planters along the shop fronts
   if (look.flowers) {
@@ -307,7 +319,12 @@ function shop(b, M, rng, s, xa, xb, h, wall, awning, word, near, light) {
   b.box(xa, y0, za, xb, top, zb);
   b.use(M.trim, CAST);
   b.box(xa - 0.2, top, za - 0.2, xb + 0.2, top + 0.35, zb + 0.2);
-  if (!near) {
+  // Within a walker's reach (the live town walks the boulevard from its
+  // foot to its crest) a far shop has a front as full as a near one's;
+  // decided without drawing on the street's random stream, so every shop
+  // is still the one it was.
+  const full = near || (xa > -300 && xb < 370);
+  if (!full) {
     // Far down the hill: a window band is enough.
     b.object();
     b.use(M.glass, CAST);
@@ -354,6 +371,138 @@ function shop(b, M, rng, s, xa, xb, h, wall, awning, word, near, light) {
     addBoard(b, M, word, { size, board: M.signCream, paint: rng.pick([M.signRed, M.signNavy, M.signTeal]), neon: rng.pick([M.neonPink, M.neonCyan, M.neonRed]), depth: 0.1 });
     b.pop();
     light([(xa + xb) / 2, ay + 1, f - s * 1.5], [1, 0.5, 0.6], 3, 0.6);
+  }
+  shopRear(b, M, new Rng(hashInts(SEED, 9000 + Math.round((xa + 1000) * 4) * 2 + (s > 0 ? 1 : 0))), s, xa, xb, f, d, y0, top, h, light);
+}
+
+// The sides and back of a shop, and its roof: what the street never shows
+// and the lots behind do. A band of color under the cornice, downspouts,
+// a back door under a canopy with a lamp, a few windows, air conditioners
+// on the roof, and on the taller ones a stair up the back to the floor
+// above. Drawn from the shop's own stream.
+const REAR_DOORS = ['doorRed', 'doorYellow', 'doorBlue', 'doorGreen', 'door'];
+function shopRear(b, M, r, s, xa, xb, f, d, y0, top, h, light) {
+  const back = f + d;
+  const out = Math.sign(d);
+  const g = (x) => gy(x) + 0.15;
+  const box = (x0, ya, z0, x1, yb, z1) => b.box(Math.min(x0, x1), ya, Math.min(z0, z1), Math.max(x0, x1), yb, Math.max(z0, z1));
+  b.object();
+  // The band, round the sides and back.
+  b.use(r.pick([M.signTeal, M.signRed, M.signNavy, M.trim]), CAST);
+  const by0 = top - 0.8;
+  const by1 = top - 0.45;
+  box(xa - 0.03, by0, back, xb + 0.03, by1, back + out * 0.03);
+  box(xa - 0.03, by0, f, xa, by1, back + out * 0.03);
+  box(xb, by0, f, xb + 0.03, by1, back + out * 0.03);
+  // Downspouts at the back corners.
+  b.use(M.trim, CAST);
+  for (const x of [xa + 0.3, xb - 0.3]) box(x - 0.07, y0 + 0.4, back + out * 0.03, x + 0.07, top, back + out * 0.17);
+  // The back door, its canopy and lamp.
+  const dx = r.range(xa + 2.2, xb - 2.2);
+  const gd = g(dx);
+  b.use(M[r.pick(REAR_DOORS)], CAST);
+  box(dx - 0.55, gd, back, dx + 0.55, gd + 2.2, back + out * 0.05);
+  b.use(M.trim, CAST);
+  box(dx - 1.1, gd + 2.45, back, dx + 1.1, gd + 2.58, back + out * 1.1);
+  box(dx - 0.9, gd - 0.3, back, dx + 0.9, gd + 0.02, back + out * 1.0);
+  light([dx, gd + 2.3, back + out * 0.7], [1, 0.82, 0.55], 2.6, 0.5);
+  // Windows: high ones down the sides, and along the back upstairs.
+  b.use(M.glass, CAST);
+  const len = Math.abs(d);
+  for (const [x, dir] of [
+    [xa, -1],
+    [xb, 1],
+  ]) {
+    const n = len > 15 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const zc = f + out * len * ((k + 1) / (n + 1));
+      const gg = g(x) + 0.15;
+      box(x, gg + 2.0, zc - 0.9, x + dir * 0.04, gg + 3.0, zc + 0.9);
+    }
+  }
+  for (let y = 4.4; y + 3 < h; y += 3.3) {
+    for (const u of [0.3, 0.7]) {
+      const x = xa + (xb - xa) * u;
+      const gg = g(x) + 0.15 + y;
+      box(x - 1, gg + 0.8, back, x + 1, gg + 2.0, back + out * 0.04);
+    }
+  }
+  // On the roof: an air conditioner or two, and a vent.
+  b.use(M.meter, CAST);
+  const units = r.int(1, 2);
+  for (let k = 0; k < units; k++) {
+    const x = r.range(xa + 2, xb - 2);
+    const z = f + out * len * r.range(0.35, 0.8);
+    box(x - 0.8, top + 0.35, z - 0.6, x + 0.8, top + 1.35, z + 0.6);
+    b.use(M.trim, CAST);
+    box(x - 0.9, top + 1.35, z - 0.7, x + 0.9, top + 1.42, z + 0.7);
+    b.use(M.meter, CAST);
+  }
+  b.use(M.post, CAST | SMOOTH);
+  const vx = r.range(xa + 1.5, xb - 1.5);
+  const vz = f + out * len * r.range(0.2, 0.9);
+  b.push();
+  b.translate(vx, top + 0.35, vz);
+  b.cylinder(0.14, 0.14, 0, 0.9, 6);
+  b.pop();
+  // A stair up the back on the taller shops, to a door upstairs.
+  if (h >= 7.8 && xb - xa > 12) {
+    const x0 = xa + 1;
+    const run = 5.4;
+    const rise = 3.3;
+    const steps = 12;
+    const zs0 = back + out * 0.05;
+    const zs1 = back + out * 1.15;
+    const g0 = g(x0);
+    b.use(M.rail, CAST);
+    for (let k = 0; k < steps; k++) {
+      const xa1 = x0 + (run * k) / steps;
+      const ya = g0 + (rise * (k + 1)) / steps;
+      box(xa1, ya - 0.06, zs0, xa1 + run / steps + 0.02, ya, zs1);
+    }
+    // The landing, the stringer and the rail.
+    box(x0 + run, g0 + rise - 0.12, zs0, x0 + run + 1.6, g0 + rise, zs1);
+    box(x0 + run + 1.5, g(x0 + run + 1.5), zs1 - 0.12, x0 + run + 1.6, g0 + rise, zs1);
+    railing(b, M.rail, [[x0, g0 + 0.9, zs1], [x0 + run, g0 + rise + 0.05, zs1], [x0 + run + 1.6, g0 + rise + 0.05, zs1]], { h: 0.95, posts: true, pitch: 1.4, r: 0.02 });
+    b.use(M[r.pick(REAR_DOORS)], CAST);
+    box(x0 + run + 0.3, g0 + rise, back, x0 + run + 1.3, g0 + rise + 2.2, back + out * 0.05);
+  }
+}
+
+// The lots behind the shops: bays painted along the back fence, some of
+// them taken, a strip of trees at the back, and lamps. Their own stream.
+// No trees behind `low` buildings ([side, x0, x1]), which they would top.
+function backLots(b, M, r, light, spans, low = []) {
+  for (const s of [-1, 1]) {
+    for (const [a, c] of spans) {
+      for (let x = a + 3; x < c - 3; x += 2.7) {
+        const y = gy(x) + 0.15 + 0.012;
+        b.use(M.lineWhite, 0);
+        const z0 = s * 52.6;
+        const z1 = s * 58;
+        const zl = Math.min(z0, z1);
+        const zh = Math.max(z0, z1);
+        b.quad([x - 0.06, y, zl], [x - 0.06, y, zh], [x + 0.06, y, zh], [x + 0.06, y, zl]);
+        // Only where the live town can walk are there cars and trees.
+        if (x < -300 || x > 370) continue;
+        if (r.chance(0.05) && x + 2.7 < c - 3) {
+          b.push();
+          b.translate(x + 1.35, gy(x + 1.35) + 0.15, s * 55.2);
+          b.rotateY(s > 0 ? -Math.PI / 2 : Math.PI / 2);
+          parkedCar(b, M, r, { lod: 0.3 });
+          b.pop();
+        }
+      }
+      for (let x = a + 12; x < c - 6; x += 22 + r.range(-3, 3)) {
+        if (x < -300 || x > 370 || low.some(([ls, l0, l1]) => ls === s && x > l0 && x < l1)) continue;
+        addRoundTree(b, r.fork(Math.round(x * 3) + (s > 0 ? 1 : 0)), M, x, s * 59.3, { ground: gy(x) + 0.15, lod: 0.5 });
+      }
+      for (let x = a + 24; x < c - 6; x += 48) {
+        if (x < -300 || x > 370) continue;
+        const L = lampPost(b, M, x, s * 49.5, gy(x) + 0.15, { height: 6, globe: 0.24, reach: 8 });
+        light(L.p, L.c, L.r, L.k);
+      }
+    }
   }
 }
 

@@ -2,7 +2,8 @@
 // Bundle the site into one self-contained HTML file, docs/index.html: the
 // page script, with the painter (the whole engine, as a Web Worker) inlined
 // into it as a string. Also builds the older, knob-covered viewer as
-// docs/workshop.html.
+// docs/workshop.html, and the live motel, painted on the GPU, as
+// docs/live.html.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { build } from 'esbuild';
@@ -32,3 +33,4 @@ mkdirSync('docs', { recursive: true });
 const worker = await bundle('web/worker.js');
 page('web/site.html', await bundle('web/site.js', { WORKER_SOURCE: JSON.stringify(worker) }), 'docs/index.html');
 page('web/viewer.html', await bundle('web/viewer.js'), 'docs/workshop.html');
+page('web/live.html', await bundle('web/live.js'), 'docs/live.html');
