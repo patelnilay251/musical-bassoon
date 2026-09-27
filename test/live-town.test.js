@@ -4,14 +4,18 @@ import { buildPlace, PLACES, ORDER } from '../src/scenes/index.js';
 import { propsAt } from '../src/visitor.js';
 import { DISTANT } from '../src/mesh.js';
 import { Town, LAYOUT, BOULEVARD, placeAt, inside } from '../src/live/town.js';
-import { buildGround } from '../src/live/ground.js';
+import { buildGround, fieldHeight } from '../src/live/ground.js';
+import { buildHinterland } from '../src/live/hinterland.js';
 import { packMesh, packWater, packLampGrid, packMaterials, boxInView, MATERIAL_FLOATS } from '../src/live/pack.js';
 import { TownWalk, walk, standAt, floorAt } from '../src/live/walk.js';
 import { addDetail } from '../src/live/detail.js';
 
-// One town for all the tests: the ground, then every place, at 4:12 pm.
+// One town for all the tests: the ground, the land behind the coast, then
+// every place, at 4:12 pm.
 const town = new Town('cobalt');
 town.setGround(buildGround(town));
+const hinterland = buildHinterland(town);
+town.setPiece('hinterland', hinterland);
 for (const id of ORDER) town.addPlace(id, 16.2);
 const grid = new TownWalk(town);
 
@@ -258,4 +262,35 @@ test('the painted places are the places they were: the town adds and moves, and 
     assert.deepEqual(Array.from(a.mesh.pos.subarray(0, 900)), Array.from(b.mesh.pos.subarray(0, 900)));
     assert.equal(a.mesh.count, b.mesh.count);
   }
+});
+
+test('the land behind the coast stays off the places and the road, and rises inland', () => {
+  const m = town.chunks.get('hinterland').mesh;
+  const H = fieldHeight();
+  let n = 0;
+  for (let t = 0; t < m.count; t++) {
+    const x = (m.pos[t * 9] + m.pos[t * 9 + 3] + m.pos[t * 9 + 6]) / 3;
+    const z = (m.pos[t * 9 + 2] + m.pos[t * 9 + 5] + m.pos[t * 9 + 8]) / 3;
+    // Street mouths run on to the road's edge; nothing else comes near it.
+    assert.ok(x > 6.9, `something on the coast road at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+    // The power line runs on down the highway past the motel.
+    const wires = z > 720 && Math.abs(x - 11.6) < 1.5;
+    for (const [id, L] of Object.entries(LAYOUT)) if (!(id === 'motel' && wires) && inside(L.ground, x, z, -1)) assert.fail(`the hinterland runs into ${id} at ${x.toFixed(1)}, ${z.toFixed(1)}`);
+    n++;
+  }
+  assert.ok(n > 100000);
+  assert.ok(hinterland.lights.length > 100, 'porches, streets and the gas station light up');
+  // Hills: higher inland than at the road, and the same everywhere it is asked.
+  assert.ok(H(900, -900) > H(20, -900) + 30);
+  assert.equal(H(512.5, 33.3), H(512.5, 33.3));
+});
+
+test('up a side street from the coast road to the top of the hill', () => {
+  let pos = standAt(grid, 2, -258, 10);
+  for (let x = 2; x < 244; x += 0.5) {
+    const next = walk(grid, pos, x + 0.5 - pos.x, -258 - pos.z);
+    assert.ok(next.x - pos.x > 0.4, `stopped at ${pos.x.toFixed(1)}`);
+    pos = next;
+  }
+  assert.ok(pos.y > standAt(grid, 2, -258, 10).y + 3, 'the street climbs');
 });

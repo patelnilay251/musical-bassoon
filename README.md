@@ -76,7 +76,7 @@ The town, filmed as the arcade game its summer would have had, playing itself be
 The first version rendered a resort. This one tries to paint a town, the way an illustrator with an airbrush would:
 
 - **Light is chosen, not simulated.** Each moment of the day names a light tone and a shade tone, keyed to the sun's elevation. Planes take one of three lit values (full, oblique, grazing) instead of a continuous falloff, and curved forms get a soft terminator and a sprayed sheen.
-- **Shade is a color.** In Pastel a face in shadow is its own color under the shade tone, so shadows are a change of hue, not a loss of it. Cobalt mixes shade instead of graying it. A color keeps its own hue, deeper and richer: a pink wall goes coral, a lawn deep green. Only whites and grays take the sky's cerulean. Shadows cast on the ground are deeper than walls in shade. Foliage is painted as dark masses with the sunlit leaves picked out bright, and palm fronds darken toward the crown and brighten toward their tips.
+- **Shade is a color.** In Pastel a face in shadow is its own color under the shade tone, so shadows are a change of hue, not a loss of it. Cobalt mixes shade instead of graying it. A color keeps its own hue, deeper and richer: a pink wall goes coral, a lawn deep green. Only whites and grays take the sky's cerulean. Shadows cast on the ground are deeper than walls in shade. Foliage is painted as dark masses with the sunlit leaves picked out bright, in dabs: the leaves grow in clusters, each turned its own way, so the sunlit side of a tree or a bush breaks into patches of light with round edges, thinning out toward the shade. Far off, where a dab would be only a few pixels, a crown is lit whole. Palm fronds darken toward the crown and brighten toward their tips.
 - **Skies are sprayed by hand.** A blue ground goes down first, then the horizon's tone sprayed up from below, then blue back over it toward the zenith, never perfectly even. Clouds are crowns of puffs lit as one airbrushed form. Pastel's horizon is misted white and its cumulus stand high. Cobalt stays a deep, saturated cobalt right down to the horizon and has two clouds at most, low on it. There, thin streaks appear only when the sun is low, and nights are a luminous royal blue, not black.
 - **Glass and water are painted the way painters paint them.** Windows get deep blue at the foot of each floor, lifting toward the sky's color, with diagonal bands of reflected light. Water mirrors the world through a second camera, then gets marbled bands and broken white crest lines. Beaches fade from aqua over the sand to deep blue offshore, with foam drawn as tapered strokes. Cobalt's pools are azure, and the sun on their ripples is dabbed on as a mosaic of small bright flecks.
 - **Hot color where the picture needs it.** In Cobalt, bougainvillea, hibiscus, oleander and lantana grow along the pool walls, around the foot of the motel sign, in planters on the boulevard and at the feet of the promenade palms (`src/world/plants.js`). They are dark green mounds studded with blossoms. Decks and sidewalks are a warm pink-cream.
@@ -94,7 +94,8 @@ The painted town makes one picture at a time on the processor. The live town (`s
 - **Back faces are culled, as the painter does.** Open water is one sheet seen from above. The mirrored camera sees it from below, and it must not paint over the boats reflected in it.
 - **Big triangles are cut small wherever a camera can be.** The motel's highway and its painted lines run for kilometers. Across a triangle that size a GPU sets up depth too coarsely where it passes the camera, and lines laid a centimeter above the asphalt sink under it. They are cut along one grid of 28 m squares, so neighbors still meet corner to corner.
 - **Only what can be seen is drawn.** Each piece of the town is laid out in 96 m squares of ground. The camera, the mirror and each shadow map draw only the squares they can see, and the mirror only the part of them its water shows. Open water isn't mirrored at all when none is in view. The water mirrored is the nearest pool in view, otherwise the sea.
-- **Lamps by the square.** The ground is cut into 16 m squares, each listing the lamps whose light can reach it. A point asks only those, and gets exactly the light it would if it asked all three hundred.
+- **Lamps by the square.** The ground is cut into 16 m squares, each listing the lamps whose light can reach it. A point asks only those, and gets exactly the light it would if it asked all seven hundred and fifty.
+- **The sea mirrors only what it can show.** All the open water is west of the shore. Seen from east of it, anything else east of it can be mirrored only where there is ground in between, so the sea's mirror leaves it out. Out on the water, the hills behind the town are mirrored in the harbor.
 
 ### One coast
 
@@ -107,6 +108,13 @@ Live, the five places are one town (`src/live/town.js`), laid along a coast that
   - the shore from each place to the next: a sea wall north of the house, a rock face down to the harbor, a mound of rubble carrying a walkway out to the breakwater, a promenade and new sand from the quay to the beach, then a groyne and a sea wall on to the motel;
   - the foot of the boulevard, carried down level to the road;
   - fields behind, and hills.
+- **Behind the coast road the land rises into hills**, and the town goes on up them (`src/live/hinterland.js`, live only):
+  - a dozen streets climbing from the road to Ridge Road along the top, with curbs, sidewalks and street lamps, and a farm road out across the fields behind the motel;
+  - bungalows along them, each with a hipped, gabled or flat roof, a porch light, a stoop, a garage or a drive, and a yard with a lawn, a hedge, a pair of cypresses by the gate or a tree;
+  - a gas station across the road from the marina, under a canopy;
+  - a water tower on the hill, lettered PALOMA BAY toward the sea;
+  - power poles down the inland side of the road, strung with sagging wires, on past the motel;
+  - eucalyptus windbreaks across the fields, groves on the hills, sage scrub, and ice plant and agave along the road's edge.
 - **One sea and one sky.** Out at sea the waves are the beach's, and inside the breakwater they are the marina's own. Each place's patterns, grain and ripples, and the airbrush up its walls, are laid from where the place stands, so they fall exactly as in its own pictures.
 
 The postcard views, taken in the town, are within one to five levels of 255 of the painted stills on average. Where they differ most it is the town itself: land behind the marina where its painting has open sea, and one sky's clouds for the whole coast.
@@ -129,7 +137,7 @@ A painting never has to show what a walker sees at arm's length, so the live tow
   - sand;
   - wood grain along the boards;
   - blades of grass;
-  - clusters of leaves on the hedges and bushes, in a noise that runs all the way round.
+  - clusters of leaves on the hedges, bushes and trees, in a noise that runs all the way round.
 
   Every octave fades before a pixel is a third of its size, so nothing shimmers.
 - **Rooms behind the glass.** Interior mapping: each pane opens onto a room that is not there. The ray from the eye goes on past the glass to the room's back wall, a side wall, the floor or the ceiling, and meets what stands in the room.
@@ -151,7 +159,10 @@ A painting never has to show what a walker sees at arm's length, so the live tow
 **The town** (`src/scenes/`, `src/world/`). A transform-stack mesh builder (boxes, prisms, extruded profiles, tubes, spheres) feeds the rules for each place:
 - a motel block with walkways, pickets and colored doors;
 - a pylon sign with stacked channel letters in a stroke font, neon laid in every stroke;
-- Mexican fan palms with skirts and split, drooping fan leaves, and coconut palms with folded leaflets;
+- Mexican fan palms, each with a shaggy skirt of dead fronds or a short trimmed boot, under a crown of pleated fan leaves that split and droop past the middle: young leaves standing up in a lighter green, old ones hanging yellow under them;
+- coconut palms with twisted fronds of folded leaflets, the young ones lighter and an old one yellowing;
+- eucalyptus with pale forked trunks, Italian cypresses, round street trees, agave, sage scrub and ice plant (`src/world/trees.js`). A round tree's crown is one closed surface heaped with lobes, as far out as any of them reaches, so its edge is scalloped and each lobe takes the sun on its own cap;
+- shops and beach houses finished round the back and sides as well as the front: windows, back doors under canopies with a lamp, downspouts, air conditioners, a stair up the back of the taller ones, and behind the boulevard's shops, lots with painted bays, trees and lamps;
 - cars in three bodies;
 - hulls lofted from stations, with sheer, flare and overhangs, then rigged as sloops or built up into motor yachts;
 - a lighthouse, a rock breakwater, a pier on pilings, a lifeguard tower, and a streamline diner with a rounded end.
@@ -165,7 +176,7 @@ The boulevard is built in a road frame and turned onto the sunset bearing. Every
 Node 22 or newer. `npm install` brings in esbuild, which is used only to bundle the site.
 
 ```sh
-npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town and its coast
+npm test                 # engine, world rules, the town, the visitor, the lens, the mirror band, the render service, both films, the live town, its coast and the land behind it
 npm run build            # docs/index.html (the town), docs/live.html (the live town) and docs/workshop.html (the old viewer)
 npm run book             # the postcards in both looks, in parallel on every core, into docs/book/<look>/ and docs/book.html
 npm run gallery          # the contact sheets above, in both looks, into docs/gallery/<look>/
@@ -185,6 +196,6 @@ Films are streamed frame by frame, in order, into ffmpeg (on the `PATH`, or name
 ## Notes
 
 - The style is an homage. No artwork was copied or used as input to the program; both looks come from rules written in code. Cobalt's palette and rules were tuned by studying published record covers next to our own pictures and measuring the difference (sky gradients, saturation, the color of shade).
-- Geometry ranges from about 35,000 triangles (the house, in Pastel) to 240,000 (the boulevard in Cobalt, which has 128 palms, a parking meter for every space, a dozen cars and planters of flowers on it).
+- Geometry ranges from about 42,000 triangles (the house, in Pastel) to 380,000 (the boulevard in Cobalt, which has 128 palms, a parking meter for every space, cars, planters of flowers and the lots behind its shops). The live town is 1.4 million, 420,000 of them the hills behind the coast road.
 - The film's game, its company and its copyright line are fictional.
 - `PHILOSOPHY.md` is the brief the engine was built against.

@@ -674,7 +674,14 @@ export class LiveRenderer {
       // Only what can be seen in the part of the mirror that is painted.
       const [sx, sy, sw, sh] = scissor;
       const ndc = [(sx / this.rw) * 2 - 1, ((sx + sw) / this.rw) * 2 - 1, 1 - ((sy + sh) / this.rh) * 2, 1 - (sy / this.rh) * 2];
-      this.drawRuns(pass, this.visible(mirrorVP, ndc), this.surfaceMirrorPipe, this.surfaceMirrorDoublePipe, 'mirror');
+      let runs = this.visible(mirrorVP, ndc);
+      // A town's open water lies west of its shore line. Seen from east of
+      // that, a thing east of it is mirrored only where there is ground
+      // between the two, never on the water, so it is left out (the hills
+      // behind the town are still mirrored in the harbor from out on it).
+      const shore = this.scene.shore;
+      if (!M.rect && shore !== undefined && cam.eye[0] >= shore) runs = runs.filter((p) => p.box.min[0] < shore);
+      this.drawRuns(pass, runs, this.surfaceMirrorPipe, this.surfaceMirrorDoublePipe, 'mirror');
       pass.setPipeline(this.skyMirrorPipe);
       pass.draw(3);
       pass.end();

@@ -36,6 +36,7 @@ const P_SEGMENTS = 7u;
 const P_PLANKS = 8u;
 const P_FROND = 9u;
 const P_SAND = 10u;
+const P_LEAVES = 11u;
 
 struct Frame {
   viewProj: mat4x4f,
@@ -491,6 +492,40 @@ fn footAcross(foot: f32, d: vec3f, gx: f32, gz: f32) -> f32 {
   let c = (gx * d.x + gz * d.z) / orOne(sqrt(d.x * d.x + d.z * d.z));
   let k = 1.0 / max(abs(d.y), 0.03);
   return foot * sqrt(c * c * k * k + 1.0 - c * c);
+}
+
+// The painter's integer hash (math.js pcg), bit for bit.
+fn pcg(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+
+// Leaf clusters (math.js leafTilt): one in each unit cell, each leaning its
+// own way, and how those around g lean there together, each by nearness.
+fn leafTilt(g: vec3f) -> vec3f {
+  let i = vec3i(floor(g));
+  var t = vec3f(0.0);
+  for (var z = -1; z <= 1; z++) {
+    for (var y = -1; y <= 1; y++) {
+      for (var x = -1; x <= 1; x++) {
+        let ci = i + vec3i(x, y, z);
+        let c = bitcast<vec3u>(ci);
+        let h1 = pcg((c.x * 73856093u) ^ (c.y * 19349663u) ^ (c.z * 83492791u));
+        let h2 = pcg(h1);
+        let h3 = pcg(h2);
+        let e = vec3f(ci) + vec3f(f32(h1), f32(h2), f32(h3)) * (1.0 / 4294967296.0) - g;
+        let dd = dot(e, e);
+        if (dd >= 1.0) { continue; }
+        let k = (1.0 - dd) * (1.0 - dd);
+        let a = pcg(h3);
+        let b = pcg(a);
+        let cc = pcg(b);
+        t += k * (vec3f(f32(a), f32(b), f32(cc)) * (1.0 / 2147483648.0) - 1.0);
+      }
+    }
+  }
+  return t;
 }
 
 // Brightness factor for a procedural pattern (negative: use color2).
@@ -1079,12 +1114,19 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       }
     }
   } else if (kind == K_FOLIAGE) {
-    let ndl = dot(n, L);
+    // Leaves in clusters, each turned its own way (the painter's foliage).
+    var t = n;
+    if (pat == P_LEAVES) {
+      let s = M.scale;
+      let J = 1.0 - ss(0.2 * s, 0.5 * s, dist * F.eye.w * 1.5);
+      if (J > 0.0) { t = normalize(n + J * leafTilt(q / s)); }
+    }
+    let ndl = dot(t, L);
     if (ndl > 0.0) {
       let vis = shadowAt(p, n);
       let lit = select(0.8, 1.0, ndl > 0.4) * vis;
       if (painted) {
-        let sh = shadeAt(m, n.y) * vec3f(0.38, 0.38, 0.42);
+        let sh = shadeAt(m, t.y) * vec3f(0.38, 0.38, 0.42);
         col = sh + (c * (A + K) - sh) * lit;
       } else {
         col = c * (A + K * lit);
@@ -1094,7 +1136,7 @@ fn shadeSurface(m: u32, flags: u32, obj: u32, p: vec3f, nIn: vec3f, uv: vec2f, d
       let vis = shadowAt(p, -n);
       let k = 0.24 * vis;
       if (painted) {
-        let sh = shadeAt(m, -n.y) * vec3f(0.38, 0.38, 0.42);
+        let sh = shadeAt(m, -t.y) * vec3f(0.38, 0.38, 0.42);
         col = sh + (c * (A + K * vec3f(1.1, 1.15, 0.6)) - sh) * k;
       } else {
         col = c * (A + K * k * vec3f(1.1, 1.15, 0.6));

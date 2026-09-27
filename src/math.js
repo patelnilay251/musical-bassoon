@@ -249,6 +249,50 @@ export function hash2(x, y) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+// A 32-bit integer hash (PCG's output step); the live shader has the same.
+export function pcg(v) {
+  const s = (Math.imul(v, 747796405) + 2891336453) >>> 0;
+  const w = Math.imul((s >>> ((s >>> 28) + 4)) ^ s, 277803737) >>> 0;
+  return ((w >>> 22) ^ w) >>> 0;
+}
+
+// Leaf clusters: one in each unit cell of a grid, somewhere in it, each
+// leaning its own way; writes to out how the clusters around g (in cells)
+// lean there together, each by how near it is, so that the patches they
+// light have round edges. The live shader's leafTilt matches.
+export function leafTilt(gx, gy, gz, out) {
+  const ix = Math.floor(gx);
+  const iy = Math.floor(gy);
+  const iz = Math.floor(gz);
+  let tx = 0;
+  let ty = 0;
+  let tz = 0;
+  for (let z = -1; z <= 1; z++) {
+    for (let y = -1; y <= 1; y++) {
+      for (let x = -1; x <= 1; x++) {
+        const h1 = pcg((Math.imul(ix + x, 73856093) ^ Math.imul(iy + y, 19349663) ^ Math.imul(iz + z, 83492791)) >>> 0);
+        const h2 = pcg(h1);
+        const h3 = pcg(h2);
+        const ex = ix + x + h1 / 4294967296 - gx;
+        const ey = iy + y + h2 / 4294967296 - gy;
+        const ez = iz + z + h3 / 4294967296 - gz;
+        const d = ex * ex + ey * ey + ez * ez;
+        if (d >= 1) continue;
+        const k = (1 - d) * (1 - d);
+        const a = pcg(h3);
+        const b = pcg(a);
+        const c = pcg(b);
+        tx += k * (a / 2147483648 - 1);
+        ty += k * (b / 2147483648 - 1);
+        tz += k * (c / 2147483648 - 1);
+      }
+    }
+  }
+  out[0] = tx;
+  out[1] = ty;
+  out[2] = tz;
+}
+
 export function hashInts(a, b) {
   let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul(b | 0, 0x85ebca77);
   h = Math.imul(h ^ (h >>> 16), 0x7feb352d);

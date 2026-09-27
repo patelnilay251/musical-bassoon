@@ -7,7 +7,7 @@ import { BVH } from './bvh.js';
 import { CAST, DOUBLE, SMOOTH, UNDERWATER, NOREFLECT, DISTANT } from './mesh.js';
 import { skyState, skyColor, seaColor, SEA_LEVEL } from './sky.js';
 import { LOOKS, DEFAULT_LOOK, lookOf } from './looks.js';
-import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul, rgbToHsv, hsvToRgb } from './math.js';
+import { DEG, clamp, lerp, smoothstep, hash2, hex, valueNoise, leafTilt, normalize, cross, sub, mat4LookAt, mat4Perspective, mat4Mul, rgbToHsv, hsvToRgb } from './math.js';
 
 export const KIND = {
   diffuse: 0,
@@ -34,7 +34,10 @@ export const PATTERN = {
   planks: 8, // board seams along world x (docks, piers), color2 unused
   frond: 9, // palm leaves: darker at the crown, lighter toward the tips
   sand: 10, // dry sand: soft drifts, and wind ripples with crests along z
+  leaves: 11, // foliage in clusters `scale` meters across, each lit its own way
 };
+
+const LT = [0, 0, 0];
 
 const TILE = 64; // output pixels per tile edge
 
@@ -729,14 +732,35 @@ export class Renderer {
         }
       }
     } else if (kind === KIND.foliage) {
-      const ndl = nx * lx + ny * ly + nz * lz;
+      // Leaves in clusters, each turned its own way: the sunlit side of a
+      // crown breaks up into dabs of light over the dark, as a painter lays
+      // them, and they thin out toward the shade. Seen from far enough off
+      // that a dab is a few samples across, the mass is lit whole.
+      let tx = nx;
+      let ty = ny;
+      let tz = nz;
+      if (pat === PATTERN.leaves) {
+        const s = this.mScale[m];
+        const J = 1 - smoothstep(0.2 * s, 0.5 * s, dist * this.pixelAngle * 1.5);
+        if (J > 0) {
+          leafTilt(px / s, py / s, pz / s, LT);
+          tx += J * LT[0];
+          ty += J * LT[1];
+          tz += J * LT[2];
+          const l = 1 / Math.sqrt(tx * tx + ty * ty + tz * tz);
+          tx *= l;
+          ty *= l;
+          tz *= l;
+        }
+      }
+      const ndl = tx * lx + ty * ly + tz * lz;
       if (ndl > 0) {
         const vis = this.shadow(px, py, pz, nx, ny, nz);
         const lit = (ndl > 0.4 ? 1 : 0.8) * vis;
         if (this.painted) {
           // Foliage is painted as dark masses with the sunlit leaves picked
           // out bright: its shade is much deeper than a wall's.
-          this.shadeAt(m, ny, SH);
+          this.shadeAt(m, ty, SH);
           SH[0] *= 0.38;
           SH[1] *= 0.38;
           SH[2] *= 0.42;
@@ -753,7 +777,7 @@ export class Renderer {
         const vis = this.shadow(px, py, pz, -nx, -ny, -nz);
         const k = 0.24 * vis;
         if (this.painted) {
-          this.shadeAt(m, -ny, SH);
+          this.shadeAt(m, -ty, SH);
           SH[0] *= 0.38;
           SH[1] *= 0.38;
           SH[2] *= 0.42;

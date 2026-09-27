@@ -188,8 +188,13 @@ export const STREETS = [
   [70, 240, 320, 240],
   [70, 320, 300, 320],
 ];
-// Behind the motel, one road out across the fields.
-export const FARM_ROAD = [64, 760, 620, 760];
+// All the open water is west of this (the shore is further west still,
+// under the road's western edge at the least).
+export const SHORE = -10;
+
+// Behind the motel, one road out across the fields, stopping short of the
+// boulevard's hilltop where it bends south toward it.
+export const FARM_ROAD = [64, 760, 540, 760];
 
 // Small things (a palm's fronds, a parked car, a door knob) are kept or
 // left whole, by where their middle is, within this much of the ground's
@@ -212,6 +217,7 @@ export class Town {
   constructor(look) {
     this.id = 'town';
     this.name = 'Paloma Bay';
+    this.shore = SHORE;
     this.look = lookOf(look);
     const { list } = makeMaterials(new Rng(hashInts(TOWN_SEED, 1)), this.look);
     this.materials = list.map((m) => ({ ...m, place: 'town' }));

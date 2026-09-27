@@ -18,7 +18,8 @@ import { normalize, cross, madd } from '../math.js';
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
-// A squashed, turned sphere: one mass of leaves.
+// A squashed, turned sphere: one mass of leaves, for trees too far off
+// for their lobes to show.
 function clump(b, rng, c, r, { squash = 0.72, q = 1 } = {}) {
   b.push();
   b.translate(c[0], c[1], c[2]);
@@ -26,6 +27,78 @@ function clump(b, rng, c, r, { squash = 0.72, q = 1 } = {}) {
   b.scale(1, squash * rng.range(0.85, 1.1), rng.range(0.8, 1));
   b.sphere(r, q > 0.6 ? 10 : q > 0.35 ? 7 : 6, q > 0.6 ? 6 : q > 0.35 ? 4 : 3);
   b.pop();
+}
+
+// The unit icosphere cut `level` times finer: 20 * 4^level faces, wound
+// outward.
+const ICO = [];
+function ico(level) {
+  if (ICO[level]) return ICO[level];
+  const t = (1 + Math.sqrt(5)) / 2;
+  const v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(normalize);
+  let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  for (let l = 0; l < level; l++) {
+    const mids = new Map();
+    const mid = (a, c) => {
+      const k = Math.min(a, c) * 65536 + Math.max(a, c);
+      let i = mids.get(k);
+      if (i === undefined) {
+        i = v.push(normalize([v[a][0] + v[c][0], v[a][1] + v[c][1], v[a][2] + v[c][2]])) - 1;
+        mids.set(k, i);
+      }
+      return i;
+    };
+    f = f.flatMap(([a, c, d]) => {
+      const ac = mid(a, c);
+      const cd = mid(c, d);
+      const da = mid(d, a);
+      return [[a, ac, da], [c, cd, ac], [d, da, cd], [ac, cd, da]];
+    });
+  }
+  return (ICO[level] = { v, f });
+}
+
+// A crown of leaves at `c`, about `r` out from its middle: a core heaped
+// over with `lobes` lesser masses, made as one closed surface (as far out
+// as any of them reaches, seen from the middle), so that its edge against
+// the sky is scalloped and each lobe takes the sun on its own cap, the way
+// a painter clusters a tree. `level` 1 (80 faces) far, to 3 (1280) near.
+function crown(b, rng, c, r, { lobes = 7, squash = 0.78, level = 2, low = -0.4 } = {}) {
+  const S = [[0, 0, 0, r * 0.6]];
+  const az0 = rng.range(0, Math.PI * 2);
+  for (let i = 0; i < lobes; i++) {
+    // Over the top and round the sides by the golden angle; none beneath.
+    const y = 0.97 - ((i + rng.range(0.2, 0.8)) / lobes) * (0.97 - low);
+    const s = Math.sqrt(1 - y * y);
+    const az = az0 + i * GOLDEN;
+    const d = r * rng.range(0.5, 0.62);
+    S.push([Math.cos(az) * s * d, y * d, Math.sin(az) * s * d, r * rng.range(0.37, 0.5)]);
+  }
+  const { v, f } = ico(level);
+  const P = [];
+  const N = [];
+  for (const u of v) {
+    // How far out along u the heap reaches, and which mass it is there.
+    let far = 0;
+    let k = 0;
+    for (let j = 0; j < S.length; j++) {
+      const [sx, sy, sz, sr] = S[j];
+      const uc = u[0] * sx + u[1] * sy + u[2] * sz;
+      const disc = uc * uc - (sx * sx + sy * sy + sz * sz) + sr * sr;
+      if (disc < 0) continue;
+      const t = uc + Math.sqrt(disc);
+      if (t > far) {
+        far = t;
+        k = j;
+      }
+    }
+    const [sx, sy, sz, sr] = S[k];
+    const p = [u[0] * far, u[1] * far, u[2] * far];
+    // Squashed, so the normals stretch the other way.
+    P.push([c[0] + p[0], c[1] + p[1] * squash, c[2] + p[2]]);
+    N.push(normalize([(p[0] - sx) / sr, (p[1] - sy) / (sr * squash), (p[2] - sz) / sr]));
+  }
+  for (const [i, j, k] of f) b.tri(P[i], P[j], P[k], null, [N[i], N[j], N[k]]);
 }
 
 export function addEucalyptus(b, rng, M, x, z, { height = rng.range(13, 22), ground = 0, lod = 1 } = {}) {
@@ -69,17 +142,19 @@ export function addEucalyptus(b, rng, M, x, z, { height = rng.range(13, 22), gro
     b.tube(lp, lr, q > 0.6 ? 5 : 4, { capEnd: true });
     ends.push({ p: lp[3], mid: lp[2], az });
   }
-  // The leaves: a loose crown of clumps, at the limb ends and between.
+  // The leaves: a loose crown of clumps at the limb ends, with sky
+  // between them; near enough, each clump is lobed.
   b.use(M.eucalyptus, CAST | SMOOTH);
   const R = k * rng.range(2.2, 2.9);
+  const mass = (p, r, squash, lobes) => (q > 0.45 ? crown(b, rng, p, r * 1.12, { lobes: q > 0.6 ? lobes + 2 : lobes, squash, level: q > 0.6 ? 2 : 1 }) : clump(b, rng, p, r, { squash, q }));
   for (const e of ends) {
-    clump(b, rng, e.p, R * rng.range(0.8, 1.1) * (q > 0.45 ? 1 : 1.15), { squash: 0.66, q });
-    // Far off, the lesser clumps are lost in the greater.
-    if (q > 0.45) clump(b, rng, [e.mid[0] + Math.cos(e.az) * R * 0.5, e.mid[1], e.mid[2] + Math.sin(e.az) * R * 0.5], R * rng.range(0.55, 0.75), { squash: 0.7, q });
+    mass(e.p, R * rng.range(0.8, 1.1) * (q > 0.45 ? 1 : 1.15), 0.66, 5);
+    // Lesser clumps on the limbs, lost in the greater far off.
+    if (q > 0.6) mass([e.mid[0] + Math.cos(e.az) * R * 0.5, e.mid[1], e.mid[2] + Math.sin(e.az) * R * 0.5], R * rng.range(0.55, 0.75), 0.7, 3);
   }
   // One heaped over the middle, so the crown is one mass with ragged edges.
   const top = ends.reduce((a, e) => [a[0] + e.p[0] / ends.length, a[1] + e.p[1] / ends.length, a[2] + e.p[2] / ends.length], [0, 0, 0]);
-  clump(b, rng, [top[0], top[1] + R * 0.35, top[2]], R * rng.range(0.9, 1.15), { squash: 0.6, q });
+  mass([top[0], top[1] + R * 0.35, top[2]], R * rng.range(0.9, 1.15), 0.6, 6);
   if (q > 0.6) {
     // A few hanging wisps of leaves under the crown.
     for (let i = 0; i < 2; i++) {
@@ -123,15 +198,21 @@ export function addRoundTree(b, rng, M, x, z, { height = rng.range(5, 8.5), grou
   b.use(M.bark, CAST | SMOOTH);
   const topStem = [x + Math.cos(la) * lean, ground + stem, z + Math.sin(la) * lean];
   b.tube([[x, ground - 0.1, z], [x + Math.cos(la) * lean * 0.4, ground + stem * 0.5, z + Math.sin(la) * lean * 0.4], topStem], [0.2, 0.16, 0.12], q > 0.6 ? 6 : 4);
-  b.use(mat, CAST | SMOOTH);
-  const c = [topStem[0], topStem[1] + r * 0.55, topStem[2]];
-  clump(b, rng, c, r, { squash: 0.78, q });
-  const lobes = q > 0.6 ? rng.int(3, 5) : 2;
-  for (let i = 0; i < lobes; i++) {
-    const a = rng.range(0, Math.PI * 2);
-    const d = r * rng.range(0.45, 0.65);
-    clump(b, rng, [c[0] + Math.cos(a) * d, c[1] + rng.range(-0.25, 0.25) * r, c[2] + Math.sin(a) * d], r * rng.range(0.55, 0.75), { squash: 0.8, q });
+  // The crown: one heap of lobes, a little wider than it is tall, on
+  // limbs that fork out of the top of the trunk into it.
+  const R = r * 1.22;
+  const c = [topStem[0], topStem[1] + R * 0.5, topStem[2]];
+  if (q > 0.45) {
+    const limbs = rng.int(2, 3);
+    const az0 = rng.range(0, Math.PI * 2);
+    for (let i = 0; i < limbs; i++) {
+      const az = az0 + (i / limbs) * Math.PI * 2 + rng.range(-0.3, 0.3);
+      const out = R * rng.range(0.35, 0.5);
+      b.tube([topStem, [topStem[0] + Math.cos(az) * out * 0.5, topStem[1] + R * 0.3, topStem[2] + Math.sin(az) * out * 0.5], [topStem[0] + Math.cos(az) * out, topStem[1] + R * 0.62, topStem[2] + Math.sin(az) * out]], [0.1, 0.07, 0.04], 4, { capEnd: true });
+    }
   }
+  b.use(mat, CAST | SMOOTH);
+  crown(b, rng, c, R, { lobes: q > 0.35 ? rng.int(8, 11) : 5, squash: rng.range(0.74, 0.84), level: q > 0.45 ? 3 : q > 0.35 ? 2 : 1 });
   return { top: c, height };
 }
 
@@ -165,17 +246,15 @@ export function addAgave(b, rng, M, x, z, { size = rng.range(0.6, 1.2), ground =
   }
 }
 
-// A mound of sage scrub, `r` meters across.
+// A mound of sage scrub, `r` meters across: near, a low heap of lobes.
 export function addScrub(b, rng, M, x, z, { r = rng.range(0.5, 1.3), ground = 0, lod = 1, mat = M.scrub } = {}) {
   b.object();
   b.use(mat, CAST | SMOOTH);
-  const lobes = lod > 0.6 ? rng.int(1, 2) : 1;
-  for (let i = 0; i < lobes; i++) {
-    const a = rng.range(0, Math.PI * 2);
-    const d = i === 0 ? 0 : r * rng.range(0.3, 0.55);
-    const lr = r * (i === 0 ? 1 : rng.range(0.55, 0.75));
-    clump(b, rng, [x + Math.cos(a) * d, ground + lr * 0.3, z + Math.sin(a) * d], lr, { squash: 0.55, q: lod });
+  if (lod > 0.6) {
+    crown(b, rng, [x, ground + r * 0.22, z], r * 1.1, { lobes: rng.int(3, 5), squash: 0.55, level: 1, low: -0.1 });
+    return;
   }
+  clump(b, rng, [x, ground + r * 0.3, z], r, { squash: 0.55, q: lod });
 }
 
 // A mat of ice plant over w x d meters at (x, z), dotted with flowers.

@@ -162,7 +162,7 @@ export function makeMaterials(rng, look) {
   add('lamp', { kind: 'lamp', color: '#f6f2e8', emit: '#ffdca0' });
   add('signalBody', { color: '#e0b93a' });
   add('signalRed', { kind: 'lamp', color: '#b3302b', emit: '#ff4a3a' });
-  add('shrub', { kind: 'foliage', color: '#3f8f4c' });
+  add('shrub', { kind: 'foliage', color: '#3f8f4c', pattern: 'leaves', scale: 0.24 });
   add('lawnTown', { color: '#4aa865' });
   add('scenery', { kind: 'distant', color: '#8f95c4' });
   add('headland', { kind: 'distant', color: '#8a86b6' });
@@ -173,7 +173,7 @@ export function makeMaterials(rng, look) {
   add('plate', { color: '#2a4a8c' });
   add('meter', { kind: 'paint', color: '#aeb4bf' });
   // Flowering shrubs (planted only in looks that have flowers).
-  add('bush', { kind: 'foliage', color: '#236c38' });
+  add('bush', { kind: 'foliage', color: '#236c38', pattern: 'leaves', scale: 0.2 });
   add('bougainvillea', { color: '#e0287e' });
   add('bougainvilleaLight', { color: '#f45fa6' });
   add('hibiscus', { color: '#e23a34' });
@@ -191,12 +191,12 @@ export function makeMaterials(rng, look) {
   add('frondOld', { kind: 'foliage', color: P.frondOld, pattern: 'frond' });
   // The hills behind the coast (trees.js).
   add('bark', { color: P.bark });
-  add('eucalyptus', { kind: 'foliage', color: P.eucalyptus });
-  add('cypress', { kind: 'foliage', color: P.cypress });
-  add('canopy', { kind: 'foliage', color: P.canopy });
+  add('eucalyptus', { kind: 'foliage', color: P.eucalyptus, pattern: 'leaves', scale: 0.6 });
+  add('cypress', { kind: 'foliage', color: P.cypress, pattern: 'leaves', scale: 0.3 });
+  add('canopy', { kind: 'foliage', color: P.canopy, pattern: 'leaves', scale: 0.5 });
   add('agave', { kind: 'foliage', color: P.agave });
-  add('scrub', { kind: 'foliage', color: P.scrub });
-  add('icePlant', { kind: 'foliage', color: P.icePlant });
+  add('scrub', { kind: 'foliage', color: P.scrub, pattern: 'leaves', scale: 0.26 });
+  add('icePlant', { kind: 'foliage', color: P.icePlant, pattern: 'leaves', scale: 0.18 });
   add('icePlantFlower', { color: P.icePlantFlower });
   // The houses and the roadside behind the coast.
   add('roofTile', { color: P.roofTile, color2: P.roofTileDark, pattern: 'stripes', scale: 2.5 });
